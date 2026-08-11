@@ -28,7 +28,7 @@ import logging
 import json
 
 import numpy as np
-import pymupdf as fitz
+import fitz
 
 from flask import (
     Flask,

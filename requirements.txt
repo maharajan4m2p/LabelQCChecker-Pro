@@ -1,5 +1,6 @@
 Flask
 gunicorn
+PyMuPDF==1.26.3
 opencv-python-headless
 numpy
 Pillow
