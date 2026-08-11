@@ -1,0 +1,11 @@
+Flask
+gunicorn
+opencv-python-headless
+numpy
+Pillow
+easyocr
+torch
+torchvision
+pytesseract
+openpyxl
+reportlab

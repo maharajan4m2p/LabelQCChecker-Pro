@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Label QC Checker Pro - Results</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#07111e;color:#e8eef6;font-family:Inter,Arial,sans-serif}
+.container{max-width:1600px;margin:auto;padding:22px}
+.header{display:flex;justify-content:space-between;align-items:center;gap:15px;padding:18px 22px;background:#0b1b2d;border:1px solid #203850;border-radius:16px;margin-bottom:20px}
+.brand{font-size:20px;font-weight:900}.brand span{color:#3b82f6}
+.actions{display:flex;gap:10px}.btn{padding:10px 15px;border-radius:9px;border:1px solid #2b4560;background:#10263c;color:#fff;text-decoration:none;cursor:pointer;font-weight:700}.primary{background:#1677f5;border-color:#1677f5}
+.card{background:#0b1b2d;border:1px solid #203850;border-radius:16px;padding:20px;margin-bottom:18px}
+h2,h3{margin-top:0}.muted{color:#91a5ba}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.stat{padding:15px;text-align:center;border-radius:10px;background:#101f32;border:1px solid #29445f}.stat b{display:block;font-size:25px;margin-top:5px}
+.pass{color:#4ade80}.fail{color:#ff6b6b}.red{color:#ff6b6b}.orange{color:#ffb454}.blue{color:#60a5fa}.green{color:#4ade80}
+.images{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.image-panel{background:#06111f;border:1px solid #29445f;border-radius:12px;padding:12px}
+.image-panel h4{margin:0 0 10px}.image-panel img{width:100%;max-height:720px;object-fit:contain;display:block;background:#02070d;border-radius:8px}
+.side img{width:100%;max-height:900px;object-fit:contain;background:#02070d;border-radius:8px}
+.table-wrap{overflow:auto;border:1px solid #203850;border-radius:10px}
+table{width:100%;border-collapse:collapse;min-width:900px}th,td{padding:10px;border-bottom:1px solid #203850;text-align:left;vertical-align:top;font-size:12px}th{background:#10253b;position:sticky;top:0}.status{font-weight:900}.row-match{background:rgba(34,197,94,.03)}.row-change{background:rgba(239,68,68,.08)}.row-missing{background:rgba(245,158,11,.08)}.row-extra{background:rgba(59,130,246,.08)}
+pre{white-space:pre-wrap;word-break:break-word;color:#b9c8d8;font-size:11px}
+.legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;font-size:12px}.legend span{font-weight:800}
+@media(max-width:900px){.images{grid-template-columns:1fr}.grid{grid-template-columns:repeat(2,1fr)}.header{flex-direction:column;align-items:flex-start}}
+</style>
+</head>
+<body>
+<div class="container">
+<header class="header">
+  <div class="brand">LABEL <span>QC</span> CHECKER PRO</div>
+  <div class="actions">
+    <a class="btn primary" href="{{ url_for('index') }}">← New Comparison</a>
+    <button class="btn" onclick="downloadPDF()">↓ Download Report</button>
+  </div>
+</header>
+
+<section class="card">
+  <h2>Approval / Master Label</h2>
+  {% set approval = result.get('approval', {}) %}
+  {% set approval_url = result.get('approval_image') or approval.get('image_url') %}
+  {% if approval_url %}
+    <div class="image-panel">
+      <img src="{{ approval_url }}" alt="Approval / Master Label">
+    </div>
+  {% else %}
+    <p class="muted">Approval label image is not available.</p>
+  {% endif %}
+  <p class="muted">File: {{ approval.get('filename','-') }}</p>
+</section>
+
+<section class="card">
+<h2>Comparison Results</h2>
+<div class="grid">
+  <div class="stat">Samples<b>{{ result.get('samples_count', result.get('samples',[])|length) }}</b></div>
+  <div class="stat green">Matched<b>{{ result.get('samples',[{}])[0].get('matched',0) if result.get('samples') else 0 }}</b></div>
+  <div class="stat red">Changed<b>{{ result.get('samples',[{}])[0].get('mismatched',0) if result.get('samples') else 0 }}</b></div>
+  <div class="stat orange">Missing<b>{{ result.get('samples',[{}])[0].get('missing',0) if result.get('samples') else 0 }}</b></div>
+  <div class="stat blue">Extra<b>{{ result.get('samples',[{}])[0].get('extra',0) if result.get('samples') else 0 }}</b></div>
+</div>
+<div class="legend">
+<span class="red">■ RED = CHANGED / MODIFIED</span>
+<span class="orange">■ ORANGE = MISSING</span>
+<span class="blue">■ BLUE = EXTRA</span>
+<span class="green">■ GREEN = MATCH</span>
+</div>
+</section>
+
+{% for sample in result.get('samples',[]) %}
+<section class="card">
+  <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div>
+      <h2>Sample {{ loop.index }}</h2>
+      <div class="muted">{{ sample.get('filename','Sample Label') }}</div>
+    </div>
+    <div class="{{ 'pass' if sample.get('status')=='PASS' else 'fail' }}" style="font-size:18px;font-weight:900">
+      {{ sample.get('status','FAIL') }} · {{ sample.get('score',0) }}%
+    </div>
+  </div>
+
+  <h3 style="margin-top:20px">Approval vs Sample — Highlighted Side by Side</h3>
+  <div class="images">
+    <div class="image-panel">
+      <h4>APPROVAL / MASTER</h4>
+      <img src="{{ sample.get('highlighted_approval_url') or approval_url }}" alt="Highlighted Approval">
+    </div>
+    <div class="image-panel">
+      <h4>SAMPLE</h4>
+      <img src="{{ sample.get('highlighted_sample_url') or sample.get('image_url') }}" alt="Highlighted Sample">
+    </div>
+  </div>
+
+  {% if sample.get('side_by_side_url') %}
+  <div class="image-panel side" style="margin-top:16px">
+    <h4>COMBINED SIDE-BY-SIDE QC VIEW</h4>
+    <img src="{{ sample.get('side_by_side_url') }}" alt="Approval and Sample side by side">
+  </div>
+  {% endif %}
+
+  <h3 style="margin-top:22px">Line-by-Line Checking</h3>
+  {% set lines = sample.get('line_result',{}).get('lines',[]) %}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Line</th><th>Approval</th><th>Sample</th><th>Status</th><th>Difference</th></tr></thead>
+    <tbody>
+    {% for row in lines %}
+      {% set st=row.get('status','')|upper %}
+      <tr class="{% if st=='MATCH' %}row-match{% elif st=='MISMATCH' %}row-change{% elif st=='MISSING' %}row-missing{% elif st=='EXTRA' %}row-extra{% endif %}">
+        <td>{{ row.get('line','-') }}</td>
+        <td>{{ row.get('approval','') }}</td>
+        <td>{{ row.get('sample','') }}</td>
+        <td class="status {% if st=='MATCH' %}green{% elif st=='MISMATCH' %}red{% elif st=='MISSING' %}orange{% elif st=='EXTRA' %}blue{% endif %}">{{ st }}</td>
+        <td>
+          {% for d in row.get('differences',[]) %}
+            <div>{{ d.get('type','replace')|upper }}:
+              <b>{{ d.get('approval_text','') }}</b>
+              → <b>{{ d.get('sample_text','') }}</b>
+            </div>
+          {% else %}
+            -
+          {% endfor %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5">No OCR lines were returned.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <h3 style="margin-top:22px">Detected Changes</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Type</th><th>Approval Data</th><th>Sample Data</th><th>Position</th></tr></thead>
+    <tbody>
+    {% for d in sample.get('visual_differences',[]) %}
+      {% set typ=d.get('type','replace')|upper %}
+      <tr>
+        <td class="{% if typ in ['INSERT','EXTRA'] %}blue{% elif typ in ['DELETE','MISSING'] %}orange{% else %}red{% endif %}"><b>{{ typ }}</b></td>
+        <td>{{ d.get('approval_text','') }}</td>
+        <td>{{ d.get('sample_text','') }}</td>
+        <td>Approval line {{ (d.get('approval_line') + 1) if d.get('approval_line') is not none else '-' }},
+            Sample line {{ (d.get('sample_line') + 1) if d.get('sample_line') is not none else '-' }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4">No differences detected.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <h3 style="margin-top:22px">OCR Text</h3>
+  <div class="images">
+    <div class="image-panel"><h4>APPROVAL OCR</h4><pre>{{ approval.get('ocr_text','') }}</pre></div>
+    <div class="image-panel"><h4>SAMPLE OCR</h4><pre>{{ sample.get('ocr_text','') }}</pre></div>
+  </div>
+</section>
+{% endfor %}
+</div>
+
+<script>
+async function downloadPDF(){
+  try{
+    const response=await fetch("{{ url_for('report_pdf') }}",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({{ result|tojson }})
+    });
+    if(!response.ok){alert("PDF generation failed.");return;}
+    const blob=await response.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;a.download="Label_QC_Comparison_Report.pdf";
+    document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+  }catch(e){console.error(e);alert("Unable to generate PDF report.");}
+}
+</script>
+</body>
+</html>

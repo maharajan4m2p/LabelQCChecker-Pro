@@ -1,0 +1,2080 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <meta
+        name="description"
+        content="Label QC Checker Pro - Intelligent Label Verification System"
+    >
+
+    <title>Label QC Checker Pro</title>
+
+
+    <!-- =====================================================
+         MAIN CSS
+    ====================================================== -->
+
+    <style>
+
+        /* =====================================================
+           RESET
+        ====================================================== */
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+
+        /* =====================================================
+           BODY
+        ====================================================== */
+
+        body {
+
+            min-height: 100vh;
+
+            font-family:
+                Inter,
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                sans-serif;
+
+            background:
+
+                radial-gradient(
+                    circle at 10% 10%,
+                    rgba(37, 99, 235, 0.18),
+                    transparent 30%
+                ),
+
+                radial-gradient(
+                    circle at 90% 15%,
+                    rgba(124, 58, 237, 0.16),
+                    transparent 30%
+                ),
+
+                linear-gradient(
+                    135deg,
+                    #06101d 0%,
+                    #0a1727 50%,
+                    #101d31 100%
+                );
+
+            color: #f8fafc;
+
+            padding: 25px 15px;
+
+        }
+
+
+        /* =====================================================
+           MAIN CONTAINER
+        ====================================================== */
+
+        .container {
+
+            width: 100%;
+
+            max-width: 1180px;
+
+            margin: 0 auto;
+
+        }
+
+
+        /* =====================================================
+           TOP BAR
+        ====================================================== */
+
+        .topbar {
+
+            display: flex;
+
+            justify-content: space-between;
+
+            align-items: center;
+
+            padding: 18px 22px;
+
+            margin-bottom: 30px;
+
+            background:
+                rgba(15, 23, 42, 0.78);
+
+            border:
+                1px solid
+                rgba(148, 163, 184, 0.15);
+
+            border-radius: 18px;
+
+            backdrop-filter: blur(18px);
+
+            box-shadow:
+                0 20px 50px
+                rgba(0, 0, 0, 0.25);
+
+        }
+
+
+        /* =====================================================
+           BRAND
+        ====================================================== */
+
+        .brand {
+
+            display: flex;
+
+            align-items: center;
+
+            gap: 13px;
+
+        }
+
+
+        .brand-icon {
+
+            width: 48px;
+
+            height: 48px;
+
+            display: flex;
+
+            align-items: center;
+
+            justify-content: center;
+
+            border-radius: 14px;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    #2563eb,
+                    #7c3aed
+                );
+
+            font-size: 23px;
+
+            box-shadow:
+                0 10px 30px
+                rgba(37, 99, 235, 0.30);
+
+        }
+
+
+        .brand-title {
+
+            font-size: 19px;
+
+            font-weight: 800;
+
+            letter-spacing: 1px;
+
+        }
+
+
+        .brand-subtitle {
+
+            margin-top: 3px;
+
+            color: #8fa3b8;
+
+            font-size: 11px;
+
+        }
+
+
+        /* =====================================================
+           SYSTEM STATUS
+        ====================================================== */
+
+        .status-pill {
+
+            display: flex;
+
+            align-items: center;
+
+            gap: 8px;
+
+            padding: 8px 13px;
+
+            border-radius: 999px;
+
+            background:
+                rgba(34, 197, 94, 0.08);
+
+            border:
+                1px solid
+                rgba(34, 197, 94, 0.22);
+
+            color: #86efac;
+
+            font-size: 11px;
+
+            font-weight: 700;
+
+        }
+
+
+        .status-dot {
+
+            width: 7px;
+
+            height: 7px;
+
+            border-radius: 50%;
+
+            background: #22c55e;
+
+            box-shadow:
+                0 0 12px #22c55e;
+
+        }
+
+
+        /* =====================================================
+           BUTTON
+        ====================================================== */
+
+        #compareButton {
+
+            width: 100%;
+
+            margin-top: 25px;
+
+            padding: 14px 20px;
+
+            border: none;
+
+            border-radius: 12px;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    #2563eb,
+                    #7c3aed
+                );
+
+            color: white;
+
+            font-size: 14px;
+
+            font-weight: 800;
+
+            cursor: pointer;
+
+            transition:
+                transform .2s ease,
+                box-shadow .2s ease,
+                opacity .2s ease;
+
+            box-shadow:
+                0 12px 30px
+                rgba(37, 99, 235, .22);
+
+        }
+
+
+        #compareButton:hover {
+
+            transform: translateY(-2px);
+
+            box-shadow:
+                0 20px 45px
+                rgba(79, 70, 229, .35);
+
+        }
+
+
+        #compareButton:active {
+
+            transform: translateY(0);
+
+        }
+
+
+        #compareButton:disabled {
+
+            opacity: .72;
+
+            cursor: wait;
+
+        }
+
+
+        /* =====================================================
+           DROPZONE HOVER
+        ====================================================== */
+
+        #approvalDropzone:hover,
+        #sampleDropzone:hover {
+
+            transform: translateY(-3px);
+
+            border-color:
+                rgba(96, 165, 250, .70);
+
+            background:
+                rgba(30, 41, 59, .45);
+
+        }
+
+
+        #approvalDropzone,
+        #sampleDropzone {
+
+            transition:
+                transform .25s ease,
+                border-color .25s ease,
+                background .25s ease;
+
+        }
+
+
+        /* =====================================================
+           FILE LIST
+        ====================================================== */
+
+        .file-item {
+
+            display: flex;
+
+            align-items: center;
+
+            gap: 8px;
+
+            margin-top: 6px;
+
+            padding: 7px 9px;
+
+            border-radius: 7px;
+
+            background:
+                rgba(59, 130, 246, .08);
+
+            border:
+                1px solid
+                rgba(96, 165, 250, .15);
+
+            color: #bfdbfe;
+
+            font-size: 10px;
+
+            overflow: hidden;
+
+        }
+
+
+        .file-item-name {
+
+            overflow: hidden;
+
+            text-overflow: ellipsis;
+
+            white-space: nowrap;
+
+        }
+
+
+        /* =====================================================
+           LOADING ANIMATION
+        ====================================================== */
+
+        @keyframes spin {
+
+            to {
+
+                transform: rotate(360deg);
+
+            }
+
+        }
+
+
+        .spinner {
+
+            width: 16px;
+
+            height: 16px;
+
+            border: 2px solid
+                rgba(255, 255, 255, .25);
+
+            border-top-color: white;
+
+            border-radius: 50%;
+
+            animation:
+                spin .8s linear infinite;
+
+            display: inline-block;
+
+            vertical-align: middle;
+
+            margin-right: 8px;
+
+        }
+
+
+        /* =====================================================
+           RESPONSIVE
+        ====================================================== */
+
+        @media (max-width: 800px) {
+
+            .topbar {
+
+                flex-direction: column;
+
+                align-items: flex-start;
+
+                gap: 15px;
+
+            }
+
+        }
+
+
+        @media (max-width: 700px) {
+
+            body {
+
+                padding:
+                    15px 10px;
+
+            }
+
+
+            .upload-grid {
+
+                grid-template-columns:
+                    1fr !important;
+
+            }
+
+
+            .topbar {
+
+                padding:
+                    15px;
+
+            }
+
+        }
+
+
+    </style>
+
+</head>
+
+
+<body>
+
+    <div class="container">
+        <!-- =====================================================
+             HEADER
+        ====================================================== -->
+
+        <header class="topbar">
+
+            <div class="brand">
+
+                <div class="brand-icon">
+                    🔍
+                </div>
+
+                <div>
+
+                    <div class="brand-title">
+                        LABEL QC CHECKER PRO
+                    </div>
+
+                    <div class="brand-subtitle">
+                        Intelligent Label Verification System
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <div class="status-pill">
+
+                <span class="status-dot"></span>
+
+                System Ready
+
+            </div>
+
+        </header>
+
+
+
+        <!-- =====================================================
+             HERO SECTION
+        ====================================================== -->
+
+        <section
+            style="
+                text-align:center;
+                padding:20px 15px 32px;
+            "
+        >
+
+            <div
+                style="
+                    display:inline-block;
+                    padding:7px 13px;
+                    border-radius:999px;
+                    background:rgba(59,130,246,.09);
+                    border:1px solid rgba(96,165,250,.22);
+                    color:#93c5fd;
+                    font-size:11px;
+                    font-weight:700;
+                    letter-spacing:.4px;
+                    margin-bottom:16px;
+                "
+            >
+                ✦ OCR • VISUAL VERIFICATION • QC AUTOMATION
+            </div>
+
+
+            <h1
+                style="
+                    font-size:clamp(32px,5vw,55px);
+                    line-height:1.05;
+                    font-weight:850;
+                    letter-spacing:-2px;
+
+                    background:
+                        linear-gradient(
+                            100deg,
+                            #ffffff,
+                            #bfdbfe 45%,
+                            #c4b5fd
+                        );
+
+                    -webkit-background-clip:text;
+                    background-clip:text;
+
+                    color:transparent;
+                "
+            >
+                Compare Labels<br>
+                With Precision.
+            </h1>
+
+
+            <p
+                style="
+                    max-width:680px;
+                    margin:16px auto 0;
+                    color:#94a3b8;
+                    font-size:14px;
+                    line-height:1.7;
+                "
+            >
+                Upload your approved master label and sample labels.
+                The QC engine compares text, fields, logos and
+                barcodes to identify differences automatically.
+            </p>
+
+        </section>
+        <!-- =====================================================
+             UPLOAD CARD
+        ====================================================== -->
+
+        <main>
+
+            <section
+                style="
+                    padding:30px;
+
+                    background:
+                        linear-gradient(
+                            145deg,
+                            rgba(15,23,42,.94),
+                            rgba(15,23,42,.78)
+                        );
+
+                    border:
+                        1px solid
+                        rgba(148,163,184,.15);
+
+                    border-radius:24px;
+
+                    box-shadow:
+                        0 30px 80px
+                        rgba(0,0,0,.35);
+
+                    backdrop-filter:blur(20px);
+                "
+            >
+
+
+                <!-- =================================================
+                     CARD HEADER
+                ================================================== -->
+
+                <div
+                    style="
+                        display:flex;
+                        justify-content:space-between;
+                        align-items:flex-start;
+                        gap:15px;
+                        margin-bottom:24px;
+                    "
+                >
+
+                    <div>
+
+                        <h2
+                            style="
+                                font-size:20px;
+                                font-weight:750;
+                                color:#f8fafc;
+                            "
+                        >
+                            Start a Label Comparison
+                        </h2>
+
+
+                        <p
+                            style="
+                                margin-top:6px;
+                                color:#71859a;
+                                font-size:12px;
+                            "
+                        >
+                            Select one approval label and one or
+                            more sample labels.
+                        </p>
+
+                    </div>
+
+
+                    <div
+                        style="
+                            padding:7px 11px;
+                            border-radius:8px;
+
+                            background:
+                                rgba(148,163,184,.08);
+
+                            color:#94a3b8;
+
+                            font-size:10px;
+
+                            white-space:nowrap;
+                        "
+                    >
+                        PNG · JPG · JPEG · PDF · WEBP
+                    </div>
+
+                </div>
+
+
+
+                <!-- =================================================
+                     FLASK FLASH MESSAGES
+                ================================================== -->
+
+                {% with messages =
+                    get_flashed_messages(
+                        with_categories=true
+                    )
+                %}
+
+                    {% if messages %}
+
+                        <div
+                            style="
+                                margin-bottom:18px;
+                            "
+                        >
+
+                            {% for category, message in messages %}
+
+                                <div
+                                    style="
+                                        margin-bottom:8px;
+                                        padding:11px 13px;
+
+                                        border-radius:8px;
+
+                                        background:
+                                        {% if category == 'error' %}
+                                            rgba(239,68,68,.10);
+                                        {% else %}
+                                            rgba(34,197,94,.10);
+                                        {% endif %}
+
+                                        border:
+                                        {% if category == 'error' %}
+                                            1px solid rgba(239,68,68,.25);
+                                        {% else %}
+                                            1px solid rgba(34,197,94,.25);
+                                        {% endif %}
+
+                                        color:
+                                        {% if category == 'error' %}
+                                            #ff7b83;
+                                        {% else %}
+                                            #4ade80;
+                                        {% endif %}
+
+                                        font-size:12px;
+                                    "
+                                >
+                                    {{ message }}
+                                </div>
+
+                            {% endfor %}
+
+                        </div>
+
+                    {% endif %}
+
+                {% endwith %}
+
+
+
+                <!-- =================================================
+                     COMPARISON FORM
+                ================================================== -->
+
+                <form
+                    id="compareForm"
+                    action="{{ url_for('compare') }}"
+                    method="POST"
+                    enctype="multipart/form-data"
+                >
+                <!-- =================================================
+                     UPLOAD GRID
+                ================================================== -->
+
+                <div
+                    class="upload-grid"
+                    style="
+                        display:grid;
+
+                        grid-template-columns:
+                            repeat(
+                                2,
+                                minmax(0,1fr)
+                            );
+
+                        gap:18px;
+                    "
+                >
+
+
+                    <!-- =============================================
+                         APPROVAL LABEL
+                    ============================================== -->
+
+                    <label
+                        id="approvalDropzone"
+                        style="
+                            position:relative;
+
+                            min-height:240px;
+
+                            display:flex;
+
+                            flex-direction:column;
+
+                            align-items:center;
+
+                            justify-content:center;
+
+                            padding:28px;
+
+                            text-align:center;
+
+                            border:
+                                1.5px dashed
+                                rgba(148,163,184,.28);
+
+                            border-radius:18px;
+
+                            background:
+                                rgba(2,6,23,.35);
+
+                            cursor:pointer;
+
+                            transition:
+                                transform .25s ease,
+                                border-color .25s ease,
+                                background .25s ease;
+                        "
+                    >
+
+                        <!-- ICON -->
+
+                        <div
+                            style="
+                                width:62px;
+                                height:62px;
+
+                                display:flex;
+
+                                align-items:center;
+                                justify-content:center;
+
+                                margin-bottom:14px;
+
+                                border-radius:17px;
+
+                                background:
+                                    linear-gradient(
+                                        135deg,
+                                        rgba(37,99,235,.20),
+                                        rgba(124,58,237,.20)
+                                    );
+
+                                border:
+                                    1px solid
+                                    rgba(96,165,250,.15);
+
+                                font-size:27px;
+                            "
+                        >
+                            📋
+                        </div>
+
+
+                        <!-- TITLE -->
+
+                        <span
+                            style="
+                                font-size:16px;
+                                font-weight:750;
+                                color:#f8fafc;
+                            "
+                        >
+                            Approval Label
+                        </span>
+
+
+                        <!-- DESCRIPTION -->
+
+                        <span
+                            style="
+                                margin-top:6px;
+
+                                color:#71859a;
+
+                                font-size:11px;
+
+                                line-height:1.6;
+
+                                max-width:270px;
+                            "
+                        >
+                            Upload the approved/master label
+                            used as your reference.
+                        </span>
+
+
+                        <!-- BUTTON TEXT -->
+
+                        <span
+                            style="
+                                margin-top:14px;
+
+                                padding:8px 13px;
+
+                                border-radius:8px;
+
+                                background:
+                                    rgba(59,130,246,.10);
+
+                                color:#93c5fd;
+
+                                font-size:11px;
+
+                                font-weight:700;
+                            "
+                        >
+                            Choose Approval Label
+                        </span>
+
+
+                        <!-- SELECTED FILE -->
+
+                        <div
+                            id="approvalFileList"
+                            style="
+                                display:none;
+
+                                width:100%;
+
+                                margin-top:12px;
+
+                                text-align:left;
+                            "
+                        ></div>
+
+
+                        <!-- FILE INPUT -->
+
+                        <input
+                            type="file"
+
+                            name="approval_label"
+
+                            id="approvalInput"
+
+                            accept="image/*,.pdf"
+
+                            required
+
+                            style="
+                                position:absolute;
+
+                                inset:0;
+
+                                width:100%;
+
+                                height:100%;
+
+                                opacity:0;
+
+                                cursor:pointer;
+                            "
+                        >
+
+                    </label>
+
+
+
+                    <!-- =============================================
+                         SAMPLE LABELS
+                    ============================================== -->
+
+                    <label
+                        id="sampleDropzone"
+                        style="
+                            position:relative;
+
+                            min-height:240px;
+
+                            display:flex;
+
+                            flex-direction:column;
+
+                            align-items:center;
+
+                            justify-content:center;
+
+                            padding:28px;
+
+                            text-align:center;
+
+                            border:
+                                1.5px dashed
+                                rgba(148,163,184,.28);
+
+                            border-radius:18px;
+
+                            background:
+                                rgba(2,6,23,.35);
+
+                            cursor:pointer;
+
+                            transition:
+                                transform .25s ease,
+                                border-color .25s ease,
+                                background .25s ease;
+                        "
+                    >
+
+                        <!-- ICON -->
+
+                        <div
+                            style="
+                                width:62px;
+                                height:62px;
+
+                                display:flex;
+
+                                align-items:center;
+                                justify-content:center;
+
+                                margin-bottom:14px;
+
+                                border-radius:17px;
+
+                                background:
+                                    linear-gradient(
+                                        135deg,
+                                        rgba(16,185,129,.16),
+                                        rgba(37,99,235,.16)
+                                    );
+
+                                border:
+                                    1px solid
+                                    rgba(52,211,153,.12);
+
+                                font-size:27px;
+                            "
+                        >
+                            🏷️
+                        </div>
+
+
+                        <!-- TITLE -->
+
+                        <span
+                            style="
+                                font-size:16px;
+
+                                font-weight:750;
+
+                                color:#f8fafc;
+                            "
+                        >
+                            Sample Labels
+                        </span>
+
+
+                        <!-- DESCRIPTION -->
+
+                        <span
+                            style="
+                                margin-top:6px;
+
+                                color:#71859a;
+
+                                font-size:11px;
+
+                                line-height:1.6;
+
+                                max-width:270px;
+                            "
+                        >
+                            Upload one or multiple labels
+                            to compare against the approval.
+                        </span>
+
+
+                        <!-- BUTTON TEXT -->
+
+                        <span
+                            style="
+                                margin-top:14px;
+
+                                padding:8px 13px;
+
+                                border-radius:8px;
+
+                                background:
+                                    rgba(16,185,129,.10);
+
+                                color:#6ee7b7;
+
+                                font-size:11px;
+
+                                font-weight:700;
+                            "
+                        >
+                            Choose Sample Labels
+                        </span>
+
+
+                        <!-- SELECTED FILES -->
+
+                        <div
+                            id="sampleFileList"
+                            style="
+                                display:none;
+
+                                width:100%;
+
+                                margin-top:12px;
+
+                                text-align:left;
+                            "
+                        ></div>
+
+
+                        <!-- FILE INPUT -->
+
+                        <input
+                            type="file"
+
+                            name="sample_labels"
+
+                            id="sampleInput"
+
+                            accept="image/*,.pdf"
+
+                            multiple
+
+                            required
+
+                            style="
+                                position:absolute;
+
+                                inset:0;
+
+                                width:100%;
+
+                                height:100%;
+
+                                opacity:0;
+
+                                cursor:pointer;
+                            "
+                        >
+
+                    </label>
+
+                </div>
+                <!-- =================================================
+                     COMPARE BUTTON
+                ================================================== -->
+
+                <div
+                    style="
+                        margin-top:24px;
+                    "
+                >
+
+                    <button
+                        id="compareButton"
+                        type="submit"
+                    >
+
+                        <span
+                            style="
+                                display:flex;
+                                align-items:center;
+                                justify-content:center;
+                                gap:10px;
+                            "
+                        >
+
+                            <span
+                                id="spinner"
+                                style="
+                                    display:none;
+                                    width:16px;
+                                    height:16px;
+                                    border-radius:50%;
+
+                                    border:
+                                        2px solid
+                                        rgba(255,255,255,.35);
+
+                                    border-top-color:white;
+
+                                    animation:
+                                        spin .7s linear infinite;
+                                "
+                            ></span>
+
+
+                            <span id="buttonText">
+                                Compare Labels
+                            </span>
+
+
+                            <span id="buttonArrow">
+                                →
+                            </span>
+
+                        </span>
+
+                    </button>
+
+                </div>
+
+
+
+                <!-- =================================================
+                     QC FEATURES
+                ================================================== -->
+
+                <div
+                    style="
+                        display:grid;
+
+                        grid-template-columns:
+                            repeat(
+                                4,
+                                minmax(0,1fr)
+                            );
+
+                        gap:12px;
+
+                        margin-top:18px;
+                    "
+                >
+
+
+                    <!-- =============================================
+                         OCR
+                    ============================================== -->
+
+                    <div
+                        style="
+                            padding:16px;
+
+                            border-radius:13px;
+
+                            background:
+                                rgba(15,23,42,.65);
+
+                            border:
+                                1px solid
+                                rgba(148,163,184,.10);
+                        "
+                    >
+
+                        <div
+                            style="
+                                font-size:20px;
+                                margin-bottom:8px;
+                            "
+                        >
+                            🤖
+                        </div>
+
+
+                        <h3
+                            style="
+                                color:#f1f5f9;
+
+                                font-size:12px;
+
+                                font-weight:750;
+                            "
+                        >
+                            OCR Analysis
+                        </h3>
+
+
+                        <p
+                            style="
+                                margin-top:5px;
+
+                                color:#64748b;
+
+                                font-size:10px;
+
+                                line-height:1.5;
+                            "
+                        >
+                            Extract and compare label
+                            text automatically.
+                        </p>
+
+                    </div>
+
+
+
+                    <!-- =============================================
+                         CHANGE DETECTION
+                    ============================================== -->
+
+                    <div
+                        style="
+                            padding:16px;
+
+                            border-radius:13px;
+
+                            background:
+                                rgba(15,23,42,.65);
+
+                            border:
+                                1px solid
+                                rgba(148,163,184,.10);
+                        "
+                    >
+
+                        <div
+                            style="
+                                font-size:20px;
+                                margin-bottom:8px;
+                            "
+                        >
+                            🎯
+                        </div>
+
+
+                        <h3
+                            style="
+                                color:#f1f5f9;
+
+                                font-size:12px;
+
+                                font-weight:750;
+                            "
+                        >
+                            Change Detection
+                        </h3>
+
+
+                        <p
+                            style="
+                                margin-top:5px;
+
+                                color:#64748b;
+
+                                font-size:10px;
+
+                                line-height:1.5;
+                            "
+                        >
+                            Identify mismatched,
+                            missing and extra values.
+                        </p>
+
+                    </div>
+
+
+
+                    <!-- =============================================
+                         VISUAL VERIFICATION
+                    ============================================== -->
+
+                    <div
+                        style="
+                            padding:16px;
+
+                            border-radius:13px;
+
+                            background:
+                                rgba(15,23,42,.65);
+
+                            border:
+                                1px solid
+                                rgba(148,163,184,.10);
+                        "
+                    >
+
+                        <div
+                            style="
+                                font-size:20px;
+                                margin-bottom:8px;
+                            "
+                        >
+                            🖼️
+                        </div>
+
+
+                        <h3
+                            style="
+                                color:#f1f5f9;
+
+                                font-size:12px;
+
+                                font-weight:750;
+                            "
+                        >
+                            Visual Verification
+                        </h3>
+
+
+                        <p
+                            style="
+                                margin-top:5px;
+
+                                color:#64748b;
+
+                                font-size:10px;
+
+                                line-height:1.5;
+                            "
+                        >
+                            Locate changed areas
+                            directly on the label.
+                        </p>
+
+                    </div>
+
+
+
+                    <!-- =============================================
+                         QC REPORT
+                    ============================================== -->
+
+                    <div
+                        style="
+                            padding:16px;
+
+                            border-radius:13px;
+
+                            background:
+                                rgba(15,23,42,.65);
+
+                            border:
+                                1px solid
+                                rgba(148,163,184,.10);
+                        "
+                    >
+
+                        <div
+                            style="
+                                font-size:20px;
+                                margin-bottom:8px;
+                            "
+                        >
+                            📊
+                        </div>
+
+
+                        <h3
+                            style="
+                                color:#f1f5f9;
+
+                                font-size:12px;
+
+                                font-weight:750;
+                            "
+                        >
+                            QC Report
+                        </h3>
+
+
+                        <p
+                            style="
+                                margin-top:5px;
+
+                                color:#64748b;
+
+                                font-size:10px;
+
+                                line-height:1.5;
+                            "
+                        >
+                            Generate detailed
+                            comparison reports.
+                        </p>
+
+                    </div>
+
+                </div>
+                </section>
+
+        </main>
+
+
+        <!-- =====================================================
+             JAVASCRIPT
+        ====================================================== -->
+
+        <script>
+
+            // =================================================
+            // GET ELEMENTS
+            // =================================================
+
+            const approvalInput =
+                document.getElementById(
+                    "approvalInput"
+                );
+
+
+            const sampleInput =
+                document.getElementById(
+                    "sampleInput"
+                );
+
+
+            const approvalDropzone =
+                document.getElementById(
+                    "approvalDropzone"
+                );
+
+
+            const sampleDropzone =
+                document.getElementById(
+                    "sampleDropzone"
+                );
+
+
+            const approvalFileList =
+                document.getElementById(
+                    "approvalFileList"
+                );
+
+
+            const sampleFileList =
+                document.getElementById(
+                    "sampleFileList"
+                );
+
+
+            const compareForm =
+                document.getElementById(
+                    "compareForm"
+                );
+
+
+            const compareButton =
+                document.getElementById(
+                    "compareButton"
+                );
+
+
+            const buttonText =
+                document.getElementById(
+                    "buttonText"
+                );
+
+
+            const buttonArrow =
+                document.getElementById(
+                    "buttonArrow"
+                );
+
+
+            const spinner =
+                document.getElementById(
+                    "spinner"
+                );
+
+
+
+            // =================================================
+            // MAXIMUM FILE SIZE
+            // Matches Flask:
+            //
+            // MAX_CONTENT_LENGTH = 25 MB
+            // =================================================
+
+            const MAX_FILE_SIZE =
+                25 * 1024 * 1024;
+
+
+
+            // =================================================
+            // FORMAT FILE SIZE
+            // =================================================
+
+            function formatFileSize(bytes) {
+
+                if (
+                    !bytes ||
+                    bytes <= 0
+                ) {
+
+                    return "0 KB";
+
+                }
+
+
+                const kb =
+                    bytes / 1024;
+
+
+                if (kb < 1024) {
+
+                    return (
+                        kb.toFixed(1) +
+                        " KB"
+                    );
+
+                }
+
+
+                const mb =
+                    kb / 1024;
+
+
+                return (
+                    mb.toFixed(1) +
+                    " MB"
+                );
+
+            }
+
+
+
+            // =================================================
+            // CREATE FILE ITEM
+            // =================================================
+
+            function createFileItem(file) {
+
+                const item =
+                    document.createElement(
+                        "div"
+                    );
+
+
+                item.className =
+                    "file-item";
+
+
+                const icon =
+                    document.createElement(
+                        "span"
+                    );
+
+
+                if (
+                    file.type &&
+                    file.type
+                        .toLowerCase()
+                        .includes("pdf")
+                ) {
+
+                    icon.textContent =
+                        "📄";
+
+                } else {
+
+                    icon.textContent =
+                        "🖼️";
+
+                }
+
+
+                const name =
+                    document.createElement(
+                        "span"
+                    );
+
+
+                name.className =
+                    "file-item-name";
+
+
+                name.textContent =
+                    file.name +
+                    " · " +
+                    formatFileSize(
+                        file.size
+                    );
+
+
+                item.appendChild(
+                    icon
+                );
+
+
+                item.appendChild(
+                    name
+                );
+
+
+                return item;
+
+            }
+
+
+
+            // =================================================
+            // DISPLAY SELECTED FILES
+            // =================================================
+
+            function displayFiles(
+                input,
+                container,
+                multiple
+            ) {
+
+                container.innerHTML =
+                    "";
+
+
+                if (
+                    !input.files ||
+                    input.files.length === 0
+                ) {
+
+                    container.style.display =
+                        "none";
+
+                    return;
+
+                }
+
+
+                container.style.display =
+                    "block";
+
+
+                const files =
+                    multiple
+                        ? Array.from(
+                            input.files
+                        )
+                        : [
+                            input.files[0]
+                        ];
+
+
+                files.forEach(
+                    function(file) {
+
+                        const item =
+                            createFileItem(
+                                file
+                            );
+
+
+                        container.appendChild(
+                            item
+                        );
+
+                    }
+                );
+
+            }
+
+
+
+            // =================================================
+            // VALIDATE FILE
+            // =================================================
+
+            function validateFile(file) {
+
+                if (!file) {
+
+                    return false;
+
+                }
+
+
+                if (
+                    file.size >
+                    MAX_FILE_SIZE
+                ) {
+
+                    alert(
+                        file.name +
+                        " is larger than 25 MB."
+                    );
+
+                    return false;
+
+                }
+
+
+                return true;
+
+            }
+
+
+
+            // =================================================
+            // APPROVAL FILE CHANGE
+            // =================================================
+
+            approvalInput.addEventListener(
+                "change",
+                function() {
+
+                    if (
+                        !approvalInput.files ||
+                        approvalInput.files.length === 0
+                    ) {
+
+                        return;
+
+                    }
+
+
+                    const file =
+                        approvalInput.files[0];
+
+
+                    if (
+                        !validateFile(
+                            file
+                        )
+                    ) {
+
+                        approvalInput.value =
+                            "";
+
+                        approvalFileList.style.display =
+                            "none";
+
+                        return;
+
+                    }
+
+
+                    displayFiles(
+                        approvalInput,
+                        approvalFileList,
+                        false
+                    );
+
+
+                    approvalDropzone.classList.add(
+                        "active"
+                    );
+
+                }
+            );
+
+
+
+            // =================================================
+            // SAMPLE FILE CHANGE
+            // =================================================
+
+            sampleInput.addEventListener(
+                "change",
+                function() {
+
+                    if (
+                        !sampleInput.files ||
+                        sampleInput.files.length === 0
+                    ) {
+
+                        return;
+
+                    }
+
+
+                    for (
+                        const file
+                        of sampleInput.files
+                    ) {
+
+                        if (
+                            !validateFile(
+                                file
+                            )
+                        ) {
+
+                            sampleInput.value =
+                                "";
+
+                            sampleFileList.style.display =
+                                "none";
+
+                            return;
+
+                        }
+
+                    }
+
+
+                    displayFiles(
+                        sampleInput,
+                        sampleFileList,
+                        true
+                    );
+
+
+                    sampleDropzone.classList.add(
+                        "active"
+                    );
+
+                }
+            );
+
+
+
+            // =================================================
+            // DRAG OVER
+            // =================================================
+
+            [
+                approvalDropzone,
+                sampleDropzone
+
+            ].forEach(
+                function(zone) {
+
+                    zone.addEventListener(
+                        "dragover",
+                        function(event) {
+
+                            event.preventDefault();
+
+                            zone.classList.add(
+                                "active"
+                            );
+
+                        }
+                    );
+
+
+                    zone.addEventListener(
+                        "dragleave",
+                        function() {
+
+                            zone.classList.remove(
+                                "active"
+                            );
+
+                        }
+                    );
+
+
+                    zone.addEventListener(
+                        "drop",
+                        function(event) {
+
+                            event.preventDefault();
+
+                            zone.classList.add(
+                                "active"
+                            );
+
+                        }
+                    );
+
+                }
+            );
+
+
+
+            // =================================================
+            // FORM SUBMISSION
+            // =================================================
+
+            compareForm.addEventListener(
+                "submit",
+                function(event) {
+
+
+                    // -----------------------------------------
+                    // APPROVAL CHECK
+                    // -----------------------------------------
+
+                    if (
+                        !approvalInput.files ||
+                        approvalInput.files.length === 0
+                    ) {
+
+                        event.preventDefault();
+
+                        alert(
+                            "Please select an Approval Label."
+                        );
+
+                        return;
+
+                    }
+
+
+                    // -----------------------------------------
+                    // SAMPLE CHECK
+                    // -----------------------------------------
+
+                    if (
+                        !sampleInput.files ||
+                        sampleInput.files.length === 0
+                    ) {
+
+                        event.preventDefault();
+
+                        alert(
+                            "Please select at least one Sample Label."
+                        );
+
+                        return;
+
+                    }
+
+
+                    // -----------------------------------------
+                    // APPROVAL SIZE CHECK
+                    // -----------------------------------------
+
+                    if (
+                        approvalInput.files[0].size >
+                        MAX_FILE_SIZE
+                    ) {
+
+                        event.preventDefault();
+
+                        alert(
+                            "Approval Label cannot be larger than 25 MB."
+                        );
+
+                        return;
+
+                    }
+
+
+                    // -----------------------------------------
+                    // SAMPLE SIZE CHECK
+                    // -----------------------------------------
+
+                    for (
+                        const file
+                        of sampleInput.files
+                    ) {
+
+                        if (
+                            file.size >
+                            MAX_FILE_SIZE
+                        ) {
+
+                            event.preventDefault();
+
+                            alert(
+                                "Sample Label cannot be larger than 25 MB."
+                            );
+
+                            return;
+
+                        }
+
+                    }
+
+
+                    // -----------------------------------------
+                    // SHOW LOADING STATE
+                    // -----------------------------------------
+
+                    compareButton.disabled =
+                        true;
+
+
+                    spinner.style.display =
+                        "inline-block";
+
+
+                    buttonText.textContent =
+                        "Analyzing Labels...";
+
+
+                    buttonArrow.textContent =
+                        "";
+
+
+                    // -----------------------------------------
+                    // IMPORTANT
+                    //
+                    // DO NOT USE:
+                    //
+                    // event.preventDefault()
+                    //
+                    // here.
+                    //
+                    // Flask must receive the form.
+                    // -----------------------------------------
+
+                }
+            );
+
+
+
+        </script>
+    </div>
+</body>
+</html>
