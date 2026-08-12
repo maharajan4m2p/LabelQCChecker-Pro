@@ -495,9 +495,8 @@ class OCREngine:
                     image,
                     lang=self.language,
                     config=config,
-                    output_type=(
-                        pytesseract.Output.DICT
-                    ),
+                    output_type=(pytesseract.Output.DICT),
+                    timeout=8
                 )
             )
 
@@ -653,15 +652,25 @@ class OCREngine:
                 "available": True,
             }
 
-        except Exception as exc:
-
+        except RuntimeError as exc:
+            logging.warning("Tesseract timeout: %s", exc)
             return {
                 "text": "",
                 "words": [],
                 "confidence": 0,
                 "available": False,
-                "error": str(exc),
+                "error": "Tesseract OCR timed out",
             }
+
+        except Exception as exc:
+            logging.exception("Tesseract OCR failed: %s", exc)
+            return {
+            "text": "",
+            "words": [],
+            "confidence": 0,
+            "available": False,
+            "error": str(exc),
+        }
 
     # =====================================================
     # TESSERACT EXTRACTION
