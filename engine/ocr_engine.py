@@ -491,14 +491,38 @@ class OCREngine:
                 f"--oem 3 --psm {psm}"
             )
 
-            data = (
-                pytesseract.image_to_data(
-                    image,
-                    lang=self.language,
-                    config=config,
-                    output_type=(pytesseract.Output.DICT),
-                    timeout=30
+            # Reduce image size before Tesseract to prevent timeout
+            ocr_image = image.copy()
+
+            max_dimension = 1800
+
+            height, width = ocr_image.shape[:2]
+            largest_dimension = max(height, width)
+
+            if largest_dimension > max_dimension:
+                scale = max_dimension / largest_dimension
+                new_width = int(width * scale)
+                new_height = int(height * scale)
+
+                ocr_image = cv2.resize(
+                    ocr_image,
+                    (new_width, new_height),
+                    interpolation=cv2.INTER_AREA
                 )
+
+            # Convert to grayscale for faster Tesseract processing
+            if len(ocr_image.shape) == 3:
+                ocr_image = cv2.cvtColor(
+                    ocr_image,
+                    cv2.COLOR_BGR2GRAY
+                )
+
+            data = pytesseract.image_to_data(
+                ocr_image,
+                lang=self.language,
+                config=config,
+                output_type=pytesseract.Output.DICT,
+                timeout=30
             )
 
             words = []
