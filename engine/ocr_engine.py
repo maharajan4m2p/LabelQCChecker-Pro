@@ -33,6 +33,7 @@ from pathlib import Path
 import os
 import re
 import shutil
+import logging
 
 import cv2
 import numpy as np
@@ -496,7 +497,7 @@ class OCREngine:
                     lang=self.language,
                     config=config,
                     output_type=(pytesseract.Output.DICT),
-                    timeout=8
+                    timeout=30
                 )
             )
 
