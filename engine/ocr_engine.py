@@ -720,43 +720,93 @@ class OCREngine:
 
     def extract_tesseract_multi(
         self,
-        image,
+        image
     ):
         """
-        Run a single lightweight Tesseract pass.
+        Run one lightweight Tesseract OCR pass.
 
-        Render free instances have very limited CPU/RAM,
-        so multiple Tesseract PSM passes can cause worker
-        timeouts and memory pressure.
+        Render free instances have limited CPU/RAM,
+        so we intentionally use only one PSM pass.
         """
 
         try:
-            # Use one reliable PSM instead of several.
-            result = self.extract_tesseract_data(
+            config = "--oem 3 --psm 6"
+
+            data = pytesseract.image_to_data(
                 image,
-                psm=6,
+                lang=self.language,
+                config=config,
+                output_type=pytesseract.Output.DICT,
+                timeout=10,
             )
 
-            return result
+            words = []
+            text_parts = []
+
+            total_items = len(data.get("text", []))
+
+            for i in range(total_items):
+
+                text = str(data["text"][i]).strip()
+
+                if not text:
+                    continue
+
+                try:
+                    confidence = float(data["conf"][i])
+                except (ValueError, TypeError):
+                    confidence = 0.0
+
+                word = {
+                    "text": text,
+                    "confidence": confidence,
+                    "left": int(data["left"][i]),
+                    "top": int(data["top"][i]),
+                    "width": int(data["width"][i]),
+                    "height": int(data["height"][i]),
+                }
+
+                words.append(word)
+                text_parts.append(text)
+
+            full_text = " ".join(text_parts)
+
+            if not words:
+                return {
+                    "text": "",
+                    "words": [],
+                    "confidence": 0.0,
+                    "available": True,
+                }
+
+            avg_confidence = sum(
+                word["confidence"] for word in words
+            ) / len(words)
+
+            return {
+                "text": full_text,
+                "words": words,
+                "confidence": avg_confidence,
+                "available": True,
+            }
 
         except RuntimeError as exc:
             logging.warning(
                 "Tesseract timeout: %s",
-                exc,
+                exc
             )
 
             return {
                 "text": "",
                 "words": [],
                 "confidence": 0.0,
-                "available": False,
-                "error": "Tesseract timeout",
+                "available": True,
             }
 
         except Exception as exc:
             logging.exception(
                 "Tesseract OCR failed: %s",
-                exc,
+                exc
             )
 
             return {
@@ -764,7 +814,6 @@ class OCREngine:
                 "words": [],
                 "confidence": 0.0,
                 "available": False,
-                "error": str(exc),
             }
 
     # =====================================================
