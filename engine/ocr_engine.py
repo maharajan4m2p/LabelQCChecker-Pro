@@ -522,7 +522,7 @@ class OCREngine:
                 lang=self.language,
                 config=config,
                 output_type=pytesseract.Output.DICT,
-                timeout=30
+                timeout=10
             )
 
             words = []
@@ -723,90 +723,49 @@ class OCREngine:
         image,
     ):
         """
-        Run Tesseract with multiple PSM modes.
+        Run a single lightweight Tesseract pass.
 
-        PSM:
-            6  = uniform block
-            11 = sparse text
-            12 = sparse text + OSD
-            3  = automatic page segmentation
-
-        Different label layouts benefit from different
-        segmentation modes.
+        Render free instances have very limited CPU/RAM,
+        so multiple Tesseract PSM passes can cause worker
+        timeouts and memory pressure.
         """
 
-        if not self.is_tesseract_available():
-
-            return {
-                "text": "",
-                "words": [],
-                "confidence": 0,
-                "available": False,
-            }
-
-        psms = []
-
-        # Configured PSM first.
         try:
-            configured_psm = int(
-                self.psm
-            )
-        except Exception:
-            configured_psm = 6
-
-        psms.append(
-            configured_psm
-        )
-
-        # Additional modes.
-        for psm in [6, 11, 12, 3]:
-
-            if psm not in psms:
-                psms.append(psm)
-
-        results = []
-
-        for psm in psms:
-
-            result = (
-                self._extract_tesseract_data(
-                    image,
-                    psm=psm,
-                )
+            # Use one reliable PSM instead of several.
+            result = self.extract_tesseract_data(
+                image,
+                psm=6,
             )
 
-            if result.get(
-                "available",
-                False
-            ) and result.get(
-                "text",
-                ""
-            ).strip():
+            return result
 
-                results.append(
-                    result
-                )
-
-        if not results:
+        except RuntimeError as exc:
+            logging.warning(
+                "Tesseract timeout: %s",
+                exc,
+            )
 
             return {
                 "text": "",
                 "words": [],
-                "confidence": 0,
-                "available": True,
+                "confidence": 0.0,
+                "available": False,
+                "error": "Tesseract timeout",
             }
 
-        # Choose the best structured result.
-        best = max(
-            results,
-            key=lambda item: (
-                self.score_ocr_result(
-                    item
-                )
-            ),
-        )
+        except Exception as exc:
+            logging.exception(
+                "Tesseract OCR failed: %s",
+                exc,
+            )
 
-        return best
+            return {
+                "text": "",
+                "words": [],
+                "confidence": 0.0,
+                "available": False,
+                "error": str(exc),
+            }
 
     # =====================================================
     # BUILD LINE TEXT
