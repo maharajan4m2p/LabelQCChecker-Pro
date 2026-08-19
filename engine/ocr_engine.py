@@ -3,29 +3,8 @@
 LABEL QC CHECKER PRO
 OCR ENGINE
 =========================================================
-
-Purpose:
-    High-accuracy OCR extraction for garment/carton labels.
-
-Features:
-    - Automatic Tesseract detection
-    - Windows Tesseract support
-    - Multiple image preprocessing methods
-    - Original image OCR
-    - Grayscale OCR
-    - Adaptive threshold OCR
-    - Otsu threshold OCR
-    - Upscaling for small text
-    - CLAHE enhancement
-    - Tesseract word confidence
-    - Preserves OCR line structure
-    - Optional EasyOCR
-    - Multiple OCR result merging
-    - Duplicate removal
-    - OCR noise filtering
-    - Bounding-box information
-    - Safe fallback when OCR engine unavailable
-
+High-accuracy OCR extraction for garment/carton labels.
+Render-friendly Tesseract handling.
 =========================================================
 """
 
@@ -47,68 +26,31 @@ from config import (
     OCR_GPU,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class OCREngine:
-    """
-    OCR service for label images.
-
-    Main public method:
-
-        extract(path)
-
-    Returns:
-
-        {
-            "text": "...",
-            "confidence": 95.2
-        }
-    """
-
-    # =====================================================
-    # INITIALIZATION
-    # =====================================================
 
     def __init__(self):
-
         self.easy_reader = None
-
-        # Find Tesseract automatically.
         self.tesseract_path = self.find_tesseract()
 
         if self.tesseract_path:
+            pytesseract.pytesseract.tesseract_cmd = self.tesseract_path
 
-            pytesseract.pytesseract.tesseract_cmd = (
-                self.tesseract_path
-            )
-
-        # -------------------------------------------------
-        # Configuration
-        # -------------------------------------------------
-
-        self.language = (
-            OCR_LANGUAGE
-            if OCR_LANGUAGE
-            else "eng"
-        )
-
-        self.psm = (
-            OCR_PSM
-            if OCR_PSM
-            else 6
-        )
-
+        self.language = OCR_LANGUAGE or "eng"
+        self.psm = OCR_PSM or 6
         self.min_confidence = (
             OCR_MIN_CONFIDENCE
             if OCR_MIN_CONFIDENCE is not None
             else 20
         )
+        self.use_easyocr = bool(OCR_USE_EASYOCR)
+        self.gpu = bool(OCR_GPU)
 
-        self.use_easyocr = bool(
-            OCR_USE_EASYOCR
-        )
-
-        self.gpu = bool(
-            OCR_GPU
+        # Keep OCR calls from hanging a Render worker.
+        self.tesseract_timeout = int(
+            os.getenv("TESSERACT_TIMEOUT", "5")
         )
 
     # =====================================================
@@ -116,52 +58,29 @@ class OCREngine:
     # =====================================================
 
     def find_tesseract(self):
-        """
-        Find Tesseract OCR automatically on Windows.
-
-        Checks:
-            1. PATH
-            2. Standard Program Files
-            3. LocalAppData
-        """
-
-        # -------------------------------------------------
-        # 1. PATH
-        # -------------------------------------------------
-
-        path = shutil.which(
-            "tesseract"
-        )
-
+        path = shutil.which("tesseract")
         if path:
             return path
 
-        # -------------------------------------------------
-        # 2. Common Windows locations
-        # -------------------------------------------------
-
         possible_paths = [
-
             r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-
             r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-
             os.path.expandvars(
                 r"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe"
             ),
-
             os.path.expandvars(
                 r"%LOCALAPPDATA%\Tesseract-OCR\tesseract.exe"
             ),
-
             r"C:\Tesseract-OCR\tesseract.exe",
+            "/usr/bin/tesseract",
+            "/usr/local/bin/tesseract",
         ]
 
         for path in possible_paths:
-
             if os.path.isfile(path):
                 return path
 
+        logger.warning("Tesseract executable was not found.")
         return None
 
     # =====================================================
@@ -169,22 +88,15 @@ class OCREngine:
     # =====================================================
 
     def is_tesseract_available(self):
-        """
-        Check whether Tesseract is actually available.
-        """
-
         if not self.tesseract_path:
             return False
 
         try:
-
-            version = (
-                pytesseract.get_tesseract_version()
-            )
-
+            version = pytesseract.get_tesseract_version()
+            logger.info("Tesseract detected: %s", version)
             return version is not None
-
-        except Exception:
+        except Exception as exc:
+            logger.warning("Tesseract is not available: %s", exc)
             return False
 
     # =====================================================
@@ -192,25 +104,21 @@ class OCREngine:
     # =====================================================
 
     def load_image(self, path):
-        """
-        Load an image safely using OpenCV.
-        """
+        if path is None:
+            raise ValueError("Image path cannot be None.")
 
         path = Path(path)
 
         if not path.exists():
-            raise ValueError(
-                f"Image does not exist: {path}"
-            )
+            raise ValueError(f"Image does not exist: {path}")
 
-        image = cv2.imread(
-            str(path)
-        )
+        if not path.is_file():
+            raise ValueError(f"Path is not a file: {path}")
 
-        if image is None:
-            raise ValueError(
-                f"Unable to read image: {path}"
-            )
+        image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+
+        if image is None or image.size == 0:
+            raise ValueError(f"Unable to read image: {path}")
 
         return image
 
@@ -219,31 +127,22 @@ class OCREngine:
     # =====================================================
 
     def upscale(self, image):
-        """
-        Upscale small label images.
-
-        This is important for small printed text.
-        """
+        if image is None:
+            raise ValueError("Image cannot be None.")
 
         height, width = image.shape[:2]
 
-        # Do not unnecessarily enlarge already large images.
         if width >= 1800:
             return image
 
         scale = 2.0
 
-        new_width = int(
-            width * scale
-        )
-
-        new_height = int(
-            height * scale
-        )
-
         return cv2.resize(
             image,
-            (new_width, new_height),
+            (
+                int(width * scale),
+                int(height * scale),
+            ),
             interpolation=cv2.INTER_CUBIC,
         )
 
@@ -252,112 +151,26 @@ class OCREngine:
     # =====================================================
 
     def preprocess_variants(self, image):
-        """
-        Generate multiple OCR-friendly versions.
-
-        We don't depend on a single thresholding method
-        because garment labels can have different:
-            - backgrounds
-            - lighting
-            - fonts
-            - print quality
-            - borders
-            - compression
-        """
+        if image is None:
+            raise ValueError("Image cannot be None.")
 
         variants = []
 
-        # -------------------------------------------------
-        # Variant 1
-        # Original/upscaled
-        # -------------------------------------------------
-
-        enlarged = self.upscale(
-            image
-        )
-
-        variants.append(
-            (
-                "original",
-                enlarged
-            )
-        )
-
-        # -------------------------------------------------
-        # Grayscale
-        # -------------------------------------------------
+        enlarged = self.upscale(image)
+        variants.append(("original", enlarged))
 
         gray = cv2.cvtColor(
             enlarged,
             cv2.COLOR_BGR2GRAY,
         )
-
-        variants.append(
-            (
-                "gray",
-                gray
-            )
-        )
-
-        # -------------------------------------------------
-        # CLAHE
-        # -------------------------------------------------
+        variants.append(("gray", gray))
 
         clahe = cv2.createCLAHE(
             clipLimit=2.0,
             tileGridSize=(8, 8),
         )
-
-        enhanced = clahe.apply(
-            gray
-        )
-
-        variants.append(
-            (
-                "clahe",
-                enhanced
-            )
-        )
-
-        # -------------------------------------------------
-        # Gaussian blur
-        # -------------------------------------------------
-
-        blurred = cv2.GaussianBlur(
-            enhanced,
-            (3, 3),
-            0,
-        )
-
-        variants.append(
-            (
-                "blur",
-                blurred
-            )
-        )
-
-        # -------------------------------------------------
-        # OTSU
-        # -------------------------------------------------
-
-        _, otsu = cv2.threshold(
-            enhanced,
-            0,
-            255,
-            cv2.THRESH_BINARY
-            + cv2.THRESH_OTSU,
-        )
-
-        variants.append(
-            (
-                "otsu",
-                otsu
-            )
-        )
-
-        # -------------------------------------------------
-        # Adaptive threshold
-        # -------------------------------------------------
+        enhanced = clahe.apply(gray)
+        variants.append(("clahe", enhanced))
 
         adaptive = cv2.adaptiveThreshold(
             enhanced,
@@ -367,53 +180,14 @@ class OCREngine:
             31,
             11,
         )
-
-        variants.append(
-            (
-                "adaptive",
-                adaptive
-            )
-        )
-
-        # -------------------------------------------------
-        # Mild adaptive threshold
-        # -------------------------------------------------
-
-        adaptive_mild = cv2.adaptiveThreshold(
-            enhanced,
-            255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY,
-            21,
-            7,
-        )
-
-        variants.append(
-            (
-                "adaptive_mild",
-                adaptive_mild
-            )
-        )
+        variants.append(("adaptive", adaptive))
 
         return variants
 
-    # =====================================================
-    # PREPROCESS - BACKWARD COMPATIBILITY
-    # =====================================================
-
     def preprocess(self, image):
-        """
-        Backward-compatible preprocessing method.
-
-        Returns the primary adaptive-threshold image.
-        """
-
-        variants = self.preprocess_variants(
-            image
-        )
+        variants = self.preprocess_variants(image)
 
         for name, processed in variants:
-
             if name == "adaptive":
                 return processed
 
@@ -424,11 +198,6 @@ class OCREngine:
     # =====================================================
 
     def clean_ocr_word(self, text):
-        """
-        Clean a single OCR word without destroying
-        meaningful label characters.
-        """
-
         if text is None:
             return ""
 
@@ -437,278 +206,165 @@ class OCREngine:
         if not text:
             return ""
 
-        # Replace strange Unicode spaces.
-        text = text.replace(
-            "\u00a0",
-            " "
-        )
-
-        # Collapse whitespace.
-        text = re.sub(
-            r"\s+",
-            " ",
-            text
-        )
+        text = text.replace("\u00a0", " ")
+        text = re.sub(r"\s+", " ", text)
 
         return text.strip()
 
     # =====================================================
-    # OCR DATA
+    # TESSERACT WORD-LEVEL OCR
     # =====================================================
 
-    def _extract_tesseract_data(
-        self,
-        image,
-        psm=None,
-    ):
-        """
-        Execute Tesseract image_to_data.
-
-        Returns word-level information with:
-            text
-            confidence
-            coordinates
-            block
-            paragraph
-            line
-        """
-
+    def _extract_tesseract_data(self, image, psm=None):
         if not self.is_tesseract_available():
-
             return {
                 "text": "",
                 "words": [],
-                "confidence": 0,
+                "confidence": 0.0,
                 "available": False,
+                "error": "Tesseract is not available",
             }
 
+        if psm is None:
+            psm = self.psm
+
         try:
+            psm = int(psm)
+        except (ValueError, TypeError):
+            psm = 6
 
-            if psm is None:
-                psm = self.psm
+        config = f"--oem 3 --psm {psm}"
 
-            config = (
-                f"--oem 3 --psm {psm}"
-            )
-
-            # Reduce image size before Tesseract to prevent timeout
-            ocr_image = image.copy()
-
-            max_dimension = 1800
-
-            height, width = ocr_image.shape[:2]
-            largest_dimension = max(height, width)
-
-            if largest_dimension > max_dimension:
-                scale = max_dimension / largest_dimension
-                new_width = int(width * scale)
-                new_height = int(height * scale)
-
-                ocr_image = cv2.resize(
-                    ocr_image,
-                    (new_width, new_height),
-                    interpolation=cv2.INTER_AREA
-                )
-
-            # Convert to grayscale for faster Tesseract processing
-            if len(ocr_image.shape) == 3:
-                ocr_image = cv2.cvtColor(
-                    ocr_image,
-                    cv2.COLOR_BGR2GRAY
-                )
-
+        try:
             data = pytesseract.image_to_data(
-                ocr_image,
+                image,
                 lang=self.language,
                 config=config,
                 output_type=pytesseract.Output.DICT,
-                timeout=10
+                timeout=self.tesseract_timeout,
             )
-
-            words = []
-
-            total_items = len(
-                data.get("text", [])
-            )
-
-            for i in range(
-                total_items
-            ):
-
-                raw_text = data[
-                    "text"
-                ][i]
-
-                text = self.clean_ocr_word(
-                    raw_text
-                )
-
-                if not text:
-                    continue
-
-                # -----------------------------------------
-                # Confidence
-                # -----------------------------------------
-
-                try:
-
-                    confidence = float(
-                        data["conf"][i]
-                    )
-
-                except (
-                    ValueError,
-                    TypeError,
-                ):
-
-                    confidence = 0.0
-
-                # Keep low confidence words internally.
-                # They can be useful when comparing labels.
-                if confidence < 0:
-                    confidence = 0.0
-
-                # -----------------------------------------
-                # Coordinates
-                # -----------------------------------------
-
-                try:
-
-                    x = int(
-                        data["left"][i]
-                    )
-
-                    y = int(
-                        data["top"][i]
-                    )
-
-                    w = int(
-                        data["width"][i]
-                    )
-
-                    h = int(
-                        data["height"][i]
-                    )
-
-                except (
-                    ValueError,
-                    TypeError,
-                ):
-
-                    x = 0
-                    y = 0
-                    w = 0
-                    h = 0
-
-                # -----------------------------------------
-                # Hierarchy
-                # -----------------------------------------
-
-                try:
-                    block_num = int(
-                        data["block_num"][i]
-                    )
-                except Exception:
-                    block_num = 0
-
-                try:
-                    par_num = int(
-                        data["par_num"][i]
-                    )
-                except Exception:
-                    par_num = 0
-
-                try:
-                    line_num = int(
-                        data["line_num"][i]
-                    )
-                except Exception:
-                    line_num = 0
-
-                words.append(
-                    {
-                        "text": text,
-                        "confidence": round(
-                            confidence,
-                            2,
-                        ),
-                        "x": x,
-                        "y": y,
-                        "w": w,
-                        "h": h,
-                        "x2": x + w,
-                        "y2": y + h,
-                        "block_num": block_num,
-                        "par_num": par_num,
-                        "line_num": line_num,
-                    }
-                )
-
-            # ---------------------------------------------
-            # Construct line-preserving OCR text.
-            # ---------------------------------------------
-
-            full_text = (
-                self.build_line_text(
-                    words
-                )
-            )
-
-            confidence_values = [
-                word["confidence"]
-                for word in words
-                if word["confidence"] > 0
-            ]
-
-            average_confidence = (
-                sum(confidence_values)
-                / len(confidence_values)
-                if confidence_values
-                else 0.0
-            )
-
-            return {
-                "text": full_text,
-                "words": words,
-                "confidence": round(
-                    average_confidence,
-                    2,
-                ),
-                "available": True,
-            }
 
         except RuntimeError as exc:
-            logging.warning("Tesseract timeout: %s", exc)
+            logger.warning(
+                "Tesseract timed out/failed. PSM=%s Error=%s",
+                psm,
+                exc,
+            )
             return {
                 "text": "",
                 "words": [],
-                "confidence": 0,
+                "confidence": 0.0,
                 "available": False,
-                "error": "Tesseract OCR timed out",
+                "error": str(exc),
             }
 
         except Exception as exc:
-            logging.exception("Tesseract OCR failed: %s", exc)
+            logger.exception(
+                "Tesseract OCR failed. PSM=%s Error=%s",
+                psm,
+                exc,
+            )
             return {
-            "text": "",
-            "words": [],
-            "confidence": 0,
-            "available": False,
-            "error": str(exc),
+                "text": "",
+                "words": [],
+                "confidence": 0.0,
+                "available": False,
+                "error": str(exc),
+            }
+
+        if not isinstance(data, dict):
+            return {
+                "text": "",
+                "words": [],
+                "confidence": 0.0,
+                "available": False,
+                "error": "Invalid Tesseract response",
+            }
+
+        words = []
+        text_items = data.get("text", [])
+
+        if not isinstance(text_items, list):
+            text_items = []
+
+        for i in range(len(text_items)):
+            text = self.clean_ocr_word(text_items[i])
+
+            if not text:
+                continue
+
+            try:
+                confidence = float(data.get("conf", [])[i])
+            except (ValueError, TypeError, IndexError):
+                confidence = 0.0
+
+            if confidence < 0:
+                confidence = 0.0
+
+            try:
+                x = int(data.get("left", [])[i])
+                y = int(data.get("top", [])[i])
+                w = int(data.get("width", [])[i])
+                h = int(data.get("height", [])[i])
+            except (ValueError, TypeError, IndexError):
+                x = y = w = h = 0
+
+            try:
+                block_num = int(data.get("block_num", [])[i])
+            except (ValueError, TypeError, IndexError):
+                block_num = 0
+
+            try:
+                par_num = int(data.get("par_num", [])[i])
+            except (ValueError, TypeError, IndexError):
+                par_num = 0
+
+            try:
+                line_num = int(data.get("line_num", [])[i])
+            except (ValueError, TypeError, IndexError):
+                line_num = 0
+
+            words.append({
+                "text": text,
+                "confidence": round(confidence, 2),
+                "x": x,
+                "y": y,
+                "w": w,
+                "h": h,
+                "x2": x + w,
+                "y2": y + h,
+                "block_num": block_num,
+                "par_num": par_num,
+                "line_num": line_num,
+            })
+
+        full_text = self.build_line_text(words)
+
+        confidence_values = [
+            word["confidence"]
+            for word in words
+            if word["confidence"] > 0
+        ]
+
+        average_confidence = (
+            sum(confidence_values) / len(confidence_values)
+            if confidence_values
+            else 0.0
+        )
+
+        return {
+            "text": full_text,
+            "words": words,
+            "confidence": round(average_confidence, 2),
+            "available": True,
+            "psm": psm,
         }
 
     # =====================================================
-    # TESSERACT EXTRACTION
+    # SINGLE TESSERACT
     # =====================================================
 
-    def extract_tesseract(
-        self,
-        image,
-    ):
-        """
-        Run Tesseract OCR using the configured PSM.
-        """
-
+    def extract_tesseract(self, image):
         return self._extract_tesseract_data(
             image,
             psm=self.psm,
@@ -718,137 +374,86 @@ class OCREngine:
     # MULTI-PSM TESSERACT
     # =====================================================
 
-    def extract_tesseract_multi(
-        self,
-        image
-    ):
-        """
-        Run one lightweight Tesseract OCR pass.
-
-        Render free instances have limited CPU/RAM,
-        so we intentionally use only one PSM pass.
-        """
-
-        try:
-            config = "--oem 3 --psm 6"
-
-            data = pytesseract.image_to_data(
-                image,
-                lang=self.language,
-                config=config,
-                output_type=pytesseract.Output.DICT,
-                timeout=10,
-            )
-
-            words = []
-            text_parts = []
-
-            total_items = len(data.get("text", []))
-
-            for i in range(total_items):
-
-                text = str(data["text"][i]).strip()
-
-                if not text:
-                    continue
-
-                try:
-                    confidence = float(data["conf"][i])
-                except (ValueError, TypeError):
-                    confidence = 0.0
-
-                word = {
-                    "text": text,
-                    "confidence": confidence,
-                    "left": int(data["left"][i]),
-                    "top": int(data["top"][i]),
-                    "width": int(data["width"][i]),
-                    "height": int(data["height"][i]),
-                }
-
-                words.append(word)
-                text_parts.append(text)
-
-            full_text = " ".join(text_parts)
-
-            if not words:
-                return {
-                    "text": "",
-                    "words": [],
-                    "confidence": 0.0,
-                    "available": True,
-                }
-
-            avg_confidence = sum(
-                word["confidence"] for word in words
-            ) / len(words)
-
-            return {
-                "text": full_text,
-                "words": words,
-                "confidence": avg_confidence,
-                "available": True,
-            }
-
-        except RuntimeError as exc:
-            logging.warning(
-                "Tesseract timeout: %s",
-                exc
-            )
-
-            return {
-                "text": "",
-                "words": [],
-                "confidence": 0.0,
-                "available": True,
-            }
-
-        except Exception as exc:
-            logging.exception(
-                "Tesseract OCR failed: %s",
-                exc
-            )
-
+    def extract_tesseract_multi(self, image):
+        if not self.is_tesseract_available():
             return {
                 "text": "",
                 "words": [],
                 "confidence": 0.0,
                 "available": False,
+                "error": "Tesseract is not available",
             }
+
+        psms = []
+
+        try:
+            configured_psm = int(self.psm)
+        except (ValueError, TypeError):
+            configured_psm = 6
+
+        psms.append(configured_psm)
+
+        # Only one fallback to reduce Render CPU usage.
+        if 6 not in psms:
+            psms.append(6)
+
+        results = []
+
+        for psm in psms:
+            try:
+                result = self._extract_tesseract_data(
+                    image,
+                    psm=psm,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Tesseract PSM %s failed: %s",
+                    psm,
+                    exc,
+                )
+                continue
+
+            if not isinstance(result, dict):
+                continue
+
+            if not result.get("available", False):
+                continue
+
+            text = str(result.get("text", "")).strip()
+
+            if not text:
+                continue
+
+            result["psm"] = psm
+            results.append(result)
+
+        if not results:
+            return {
+                "text": "",
+                "words": [],
+                "confidence": 0.0,
+                "available": True,
+                "error": "Tesseract returned no usable text",
+            }
+
+        return max(
+            results,
+            key=self.score_ocr_result,
+        )
 
     # =====================================================
     # BUILD LINE TEXT
     # =====================================================
 
-    def build_line_text(
-        self,
-        words,
-    ):
-        """
-        Reconstruct OCR text while preserving line breaks.
-
-        This is VERY important for FieldDetector.
-
-        Previous code:
-
-            " ".join(words)
-
-        destroyed line boundaries.
-
-        This version reconstructs:
-
-            BUYER: ABC FASHION LTD.
-            VENDOR: VEN-2401
-            PO NO: PO/AF/24-25/1001
-            STYLE NO: AV-TS-2401
-        """
-
+    def build_line_text(self, words):
         if not words:
             return ""
 
         groups = {}
 
         for word in words:
+            if not isinstance(word, dict):
+                continue
 
             key = (
                 word.get("block_num", 0),
@@ -856,52 +461,35 @@ class OCREngine:
                 word.get("line_num", 0),
             )
 
-            groups.setdefault(
-                key,
-                []
-            ).append(word)
+            groups.setdefault(key, []).append(word)
 
         lines = []
 
-        for key, line_words in groups.items():
-
-            # Sort left-to-right.
+        for line_words in groups.values():
             line_words.sort(
-                key=lambda item: (
-                    item.get("x", 0)
-                )
+                key=lambda item: item.get("x", 0)
             )
 
-            line_text = " ".join(
-                item["text"]
-                for item in line_words
-                if item.get("text")
-            )
+            text_parts = [
+                str(word.get("text", "")).strip()
+                for word in line_words
+                if str(word.get("text", "")).strip()
+            ]
 
             line_text = re.sub(
                 r"\s+",
                 " ",
-                line_text
+                " ".join(text_parts),
             ).strip()
 
             if line_text:
-                lines.append(
-                    (
-                        min(
-                            item.get(
-                                "y",
-                                0
-                            )
-                            for item in line_words
-                        ),
-                        line_text,
-                    )
+                min_y = min(
+                    word.get("y", 0)
+                    for word in line_words
                 )
+                lines.append((min_y, line_text))
 
-        # Sort lines vertically.
-        lines.sort(
-            key=lambda item: item[0]
-        )
+        lines.sort(key=lambda item: item[0])
 
         return "\n".join(
             line[1]
@@ -909,173 +497,31 @@ class OCREngine:
         )
 
     # =====================================================
-    # EASY OCR INITIALIZATION
-    # ==========================
-    def build_easyocr_lines(
-        self,
-        words,
-    ):
-        """
-        Reconstruct EasyOCR results into readable lines.
-        """
-
-        if not words:
-            return ""
-
-        lines = []
-
-        # Average text height.
-        heights = [
-            word["h"]
-            for word in words
-            if word.get("h", 0) > 0
-        ]
-
-        average_height = (
-            sum(heights) / len(heights)
-            if heights
-            else 20
-        )
-
-        # Line tolerance.
-        y_tolerance = max(
-            8,
-            int(
-                average_height * 0.6
-            ),
-        )
-
-        for word in sorted(
-            words,
-            key=lambda item: (
-                item["y"],
-                item["x"],
-            ),
-        ):
-
-            placed = False
-
-            center_y = (
-                word["y"]
-                + word["h"] / 2
-            )
-
-            for line in lines:
-
-                if abs(
-                    center_y
-                    - line["center_y"]
-                ) <= y_tolerance:
-
-                    line["words"].append(
-                        word
-                    )
-
-                    centers = [
-                        item["y"]
-                        + item["h"] / 2
-                        for item in line[
-                            "words"
-                        ]
-                    ]
-
-                    line["center_y"] = (
-                        sum(centers)
-                        / len(centers)
-                    )
-
-                    placed = True
-                    break
-
-            if not placed:
-
-                lines.append(
-                    {
-                        "center_y": center_y,
-                        "words": [word],
-                    }
-                )
-
-        # Sort lines vertically.
-        lines.sort(
-            key=lambda item: (
-                item["center_y"]
-            )
-        )
-
-        output_lines = []
-
-        for line in lines:
-
-            line_words = sorted(
-                line["words"],
-                key=lambda item: (
-                    item["x"]
-                ),
-            )
-
-            text = " ".join(
-                item["text"]
-                for item in line_words
-            )
-
-            text = re.sub(
-                r"\s+",
-                " ",
-                text
-            ).strip()
-
-            if text:
-                output_lines.append(
-                    text
-                )
-
-        return "\n".join(
-            output_lines
-        )
-
-    # =====================================================
-    # OCR RESULT SCORE
+    # SCORE OCR RESULT
     # =====================================================
 
-    def score_ocr_result(
-        self,
-        result,
-    ):
-        """
-        Score OCR result quality.
-
-        Higher:
-            confidence
-            useful character count
-            number of words
-
-        Lower:
-            excessive noise
-        """
-
-        if not result:
+    def score_ocr_result(self, result):
+        if not isinstance(result, dict):
             return 0.0
 
-        text = result.get(
-            "text",
-            ""
-        )
-
-        confidence = float(
-            result.get(
-                "confidence",
-                0
-            )
-        )
-
-        words = result.get(
-            "words",
-            []
-        )
+        text = str(
+            result.get("text", "")
+        ).strip()
 
         if not text:
             return 0.0
+
+        try:
+            confidence = float(
+                result.get("confidence", 0.0) or 0.0
+            )
+        except (ValueError, TypeError):
+            confidence = 0.0
+
+        words = result.get("words", [])
+
+        if not isinstance(words, list):
+            words = []
 
         useful_chars = len(
             re.findall(
@@ -1084,40 +530,23 @@ class OCREngine:
             )
         )
 
-        word_count = len(
-            words
-        )
-
-        # Don't allow length to dominate confidence.
         text_score = min(
             useful_chars / 20.0,
             10.0,
         )
 
         word_score = min(
-            word_count / 10.0,
+            len(words) / 10.0,
             5.0,
         )
 
-        return (
-            confidence
-            + text_score
-            + word_score
-        )
+        return confidence + text_score + word_score
 
     # =====================================================
-    # NORMALIZE OCR LINE
+    # NORMALIZATION
     # =====================================================
 
-    def normalize_ocr_line(
-        self,
-        line,
-    ):
-        """
-        Normalize an OCR line while preserving useful
-        punctuation.
-        """
-
+    def normalize_ocr_line(self, line):
         if not line:
             return ""
 
@@ -1131,209 +560,41 @@ class OCREngine:
             .replace("−", "-")
         )
 
-        line = re.sub(
+        return re.sub(
             r"[ \t]+",
             " ",
             line,
-        )
+        ).strip()
 
-        return line.strip()
-
-    # =====================================================
-    # MERGE OCR TEXT
-    # =====================================================
-
-    def merge_text(
-        self,
-        tesseract,
-        easy,
-    ):
-        """
-        Merge Tesseract and EasyOCR results.
-
-        Tesseract is preferred for:
-            - line structure
-            - field labels
-            - punctuation
-            - numbers
-
-        EasyOCR can add:
-            - difficult text
-            - text missed by Tesseract
-        """
-
-        tess_text = (
-            tesseract.get(
-                "text",
-                ""
-            )
-            if tesseract
-            else ""
-        )
-
-        easy_text = (
-            easy.get(
-                "text",
-                ""
-            )
-            if easy
-            else ""
-        )
-
-        # -------------------------------------------------
-        # If only Tesseract available
-        # -------------------------------------------------
-
-        if tess_text and not easy_text:
-            return tess_text.strip()
-
-        # -------------------------------------------------
-        # If only EasyOCR available
-        # -------------------------------------------------
-
-        if easy_text and not tess_text:
-            return easy_text.strip()
-
-        # -------------------------------------------------
-        # Nothing available
-        # -------------------------------------------------
-
-        if not tess_text and not easy_text:
-            return ""
-
-        # -------------------------------------------------
-        # Start with Tesseract because its line structure
-        # is generally better for field extraction.
-        # -------------------------------------------------
-
-        tess_lines = [
-            self.normalize_ocr_line(
-                line
-            )
-            for line in tess_text.splitlines()
-        ]
-
-        tess_lines = [
-            line
-            for line in tess_lines
-            if line
-        ]
-
-        easy_lines = [
-            self.normalize_ocr_line(
-                line
-            )
-            for line in easy_text.splitlines()
-        ]
-
-        easy_lines = [
-            line
-            for line in easy_lines
-            if line
-        ]
-
-        # -------------------------------------------------
-        # Remove exact duplicate lines.
-        # -------------------------------------------------
-
-        merged = list(
-            tess_lines
-        )
-
-        existing_normalized = {
-            self.normalize_for_duplicate(
-                line
-            )
-            for line in merged
-        }
-
-        for line in easy_lines:
-
-            normalized = (
-                self.normalize_for_duplicate(
-                    line
-                )
-            )
-
-            if not normalized:
-                continue
-
-            if normalized in existing_normalized:
-                continue
-
-            # Only add useful EasyOCR lines.
-            if self.is_useful_ocr_line(
-                line
-            ):
-
-                merged.append(
-                    line
-                )
-
-                existing_normalized.add(
-                    normalized
-                )
-
-        return "\n".join(
-            merged
-        )
-
-    # =====================================================
-    # DUPLICATE NORMALIZATION
-    # =====================================================
-
-    def normalize_for_duplicate(
-        self,
-        text,
-    ):
-        """
-        Normalize text only for duplicate detection.
-        """
-
+    def normalize_for_duplicate(self, text):
         if not text:
             return ""
 
         text = str(text).upper()
 
-        text = re.sub(
+        return re.sub(
             r"[^A-Z0-9]+",
             "",
             text,
         )
 
-        return text
-
-    # =====================================================
-    # USEFUL OCR LINE
-    # =====================================================
-
-    def is_useful_ocr_line(
-        self,
-        text,
-    ):
-        """
-        Filter obvious OCR garbage.
-        """
-
+    def is_useful_ocr_line(self, text):
         if not text:
             return False
 
-        alphanumeric = re.findall(
-            r"[A-Za-z0-9]",
-            text,
-        )
-
-        if len(alphanumeric) < 2:
-            return False
-
-        return True
+        return len(
+            re.findall(
+                r"[A-Za-z0-9]",
+                text,
+            )
+        ) >= 2
 
     # =====================================================
-    # MAIN EXTRACTION
+    # EASY OCR
     # =====================================================
 
     def extract_easyocr(self, image):
-        if not OCR_USE_EASYOCR:
+        if not self.use_easyocr:
             return {
                 "text": "",
                 "words": [],
@@ -1346,15 +607,15 @@ class OCREngine:
 
             if self.easy_reader is None:
                 self.easy_reader = easyocr.Reader(
-                    [OCR_LANGUAGE],
-                    gpu=OCR_GPU,
-                    verbose=False
+                    [self.language],
+                    gpu=self.gpu,
+                    verbose=False,
                 )
 
             results = self.easy_reader.readtext(
                 image,
                 detail=1,
-                paragraph=False
+                paragraph=False,
             )
 
             words = []
@@ -1362,27 +623,37 @@ class OCREngine:
             confidence_values = []
 
             for result in results:
+                if not isinstance(result, (list, tuple)):
+                    continue
+
                 if len(result) < 3:
                     continue
 
                 box, text, confidence = result
 
                 text = str(text).strip()
-                confidence = float(confidence) * 100
+
+                try:
+                    confidence = float(confidence) * 100
+                except (ValueError, TypeError):
+                    confidence = 0.0
 
                 if not text:
                     continue
 
-                if confidence < OCR_MIN_CONFIDENCE:
+                if confidence < self.min_confidence:
                     continue
 
-                xs = [int(point[0]) for point in box]
-                ys = [int(point[1]) for point in box]
+                try:
+                    xs = [int(point[0]) for point in box]
+                    ys = [int(point[1]) for point in box]
 
-                x1 = min(xs)
-                y1 = min(ys)
-                x2 = max(xs)
-                y2 = max(ys)
+                    x1 = min(xs)
+                    y1 = min(ys)
+                    x2 = max(xs)
+                    y2 = max(ys)
+                except (ValueError, TypeError, IndexError):
+                    continue
 
                 words.append({
                     "text": text,
@@ -1398,17 +669,28 @@ class OCREngine:
                 text_parts.append(text)
                 confidence_values.append(confidence)
 
+            average_confidence = (
+                sum(confidence_values) / len(confidence_values)
+                if confidence_values
+                else 0.0
+            )
+
             return {
                 "text": " ".join(text_parts),
                 "words": words,
                 "confidence": round(
-                    sum(confidence_values) / len(confidence_values),
-                    2
-                ) if confidence_values else 0.0,
+                    average_confidence,
+                    2,
+                ),
                 "available": True,
             }
 
         except Exception as exc:
+            logger.exception(
+                "EasyOCR failed: %s",
+                exc,
+            )
+
             return {
                 "text": "",
                 "words": [],
@@ -1416,32 +698,126 @@ class OCREngine:
                 "available": False,
                 "error": str(exc),
             }
-        
-    def extract(
-        self,
-        path,
-    ):
+
+    # =====================================================
+    # MERGE OCR TEXT
+    # =====================================================
+
+    def merge_text(self, tesseract, easy):
+        tess_text = (
+            str(tesseract.get("text", "")).strip()
+            if isinstance(tesseract, dict)
+            else ""
+        )
+
+        easy_text = (
+            str(easy.get("text", "")).strip()
+            if isinstance(easy, dict)
+            else ""
+        )
+
+        if tess_text and not easy_text:
+            return tess_text
+
+        if easy_text and not tess_text:
+            return easy_text
+
+        if not tess_text and not easy_text:
+            return ""
+
+        tess_lines = [
+            self.normalize_ocr_line(line)
+            for line in tess_text.splitlines()
+        ]
+
+        tess_lines = [
+            line for line in tess_lines if line
+        ]
+
+        easy_lines = [
+            self.normalize_ocr_line(line)
+            for line in easy_text.splitlines()
+        ]
+
+        easy_lines = [
+            line for line in easy_lines if line
+        ]
+
+        merged = list(tess_lines)
+
+        existing = {
+            self.normalize_for_duplicate(line)
+            for line in merged
+        }
+
+        for line in easy_lines:
+            normalized = self.normalize_for_duplicate(line)
+
+            if not normalized:
+                continue
+
+            if normalized in existing:
+                continue
+
+            if not self.is_useful_ocr_line(line):
+                continue
+
+            merged.append(line)
+            existing.add(normalized)
+
+        return "\n".join(merged)
+
+    # =====================================================
+    # MAIN EXTRACTION
+    # =====================================================
+
+    def extract(self, path):
         """
         Complete OCR pipeline.
 
-        IMPORTANT:
-        OCR coordinates are returned in ORIGINAL IMAGE coordinates.
-        This prevents highlight drift when OCR preprocessing upscales
-        the image.
+        Returned word coordinates are mapped back to the
+        original image dimensions.
         """
+
         image = self.load_image(path)
-        original_h, original_w = image.shape[:2]
+
+        original_height, original_width = image.shape[:2]
 
         variants = self.preprocess_variants(image)
+
         tesseract_results = []
 
         for variant_name, processed in variants:
-            result = self.extract_tesseract_multi(processed)
-            if result.get("available") and result.get("text", "").strip():
-                result["variant"] = variant_name
-                result["_ocr_width"] = processed.shape[1]
-                result["_ocr_height"] = processed.shape[0]
-                tesseract_results.append(result)
+            try:
+                result = self.extract_tesseract_multi(
+                    processed
+                )
+            except Exception as exc:
+                logger.exception(
+                    "OCR variant %s failed: %s",
+                    variant_name,
+                    exc,
+                )
+                continue
+
+            if not isinstance(result, dict):
+                continue
+
+            text = str(
+                result.get("text", "")
+            ).strip()
+
+            if not result.get("available", False):
+                continue
+
+            if not text:
+                continue
+
+            result["variant"] = variant_name
+            result["_ocr_width"] = processed.shape[1]
+            result["_ocr_height"] = processed.shape[0]
+
+            tesseract_results.append(result)
 
         if tesseract_results:
             best_tesseract = max(
@@ -1452,113 +828,241 @@ class OCREngine:
             best_tesseract = {
                 "text": "",
                 "words": [],
-                "confidence": 0,
+                "confidence": 0.0,
                 "available": self.is_tesseract_available(),
             }
 
-        # -------------------------------------------------
-        # Map OCR coordinates back to ORIGINAL image.
-        # -------------------------------------------------
-        ocr_w = int(best_tesseract.get("_ocr_width", original_w) or original_w)
-        ocr_h = int(best_tesseract.get("_ocr_height", original_h) or original_h)
+        ocr_width = int(
+            best_tesseract.get(
+                "_ocr_width",
+                original_width,
+            )
+            or original_width
+        )
 
-        sx = original_w / max(1, ocr_w)
-        sy = original_h / max(1, ocr_h)
+        ocr_height = int(
+            best_tesseract.get(
+                "_ocr_height",
+                original_height,
+            )
+            or original_height
+        )
+
+        scale_x = (
+            original_width / max(1, ocr_width)
+        )
+
+        scale_y = (
+            original_height / max(1, ocr_height)
+        )
 
         mapped_words = []
-        for word in best_tesseract.get("words", []) or []:
+
+        source_words = best_tesseract.get(
+            "words",
+            [],
+        )
+
+        if not isinstance(source_words, list):
+            source_words = []
+
+        for word in source_words:
+            if not isinstance(word, dict):
+                continue
+
             try:
-                x = int(round(float(word.get("x", 0)) * sx))
-                y = int(round(float(word.get("y", 0)) * sy))
-                w = int(round(float(word.get("w", 0)) * sx))
-                h = int(round(float(word.get("h", 0)) * sy))
+                x = int(
+                    round(
+                        float(word.get("x", 0))
+                        * scale_x
+                    )
+                )
+
+                y = int(
+                    round(
+                        float(word.get("y", 0))
+                        * scale_y
+                    )
+                )
+
+                width = int(
+                    round(
+                        float(word.get("w", 0))
+                        * scale_x
+                    )
+                )
+
+                height = int(
+                    round(
+                        float(word.get("h", 0))
+                        * scale_y
+                    )
+                )
+
             except (TypeError, ValueError):
                 continue
 
-            if w <= 0 or h <= 0:
+            if width <= 0 or height <= 0:
                 continue
 
+            x = max(
+                0,
+                min(
+                    x,
+                    original_width - 1,
+                ),
+            )
+
+            y = max(
+                0,
+                min(
+                    y,
+                    original_height - 1,
+                ),
+            )
+
+            x2 = min(
+                original_width,
+                x + width,
+            )
+
+            y2 = min(
+                original_height,
+                y + height,
+            )
+
             item = dict(word)
+
             item.update({
                 "x": x,
                 "y": y,
-                "w": w,
-                "h": h,
-                "x2": min(original_w - 1, x + w),
-                "y2": min(original_h - 1, y + h),
+                "w": max(1, x2 - x),
+                "h": max(1, y2 - y),
+                "x2": x2,
+                "y2": y2,
                 "original_x": x,
                 "original_y": y,
-                "original_w": w,
-                "original_h": h,
+                "original_w": max(1, x2 - x),
+                "original_h": max(1, y2 - y),
                 "coordinate_space": "original",
-                "scale_x": sx,
-                "scale_y": sy,
+                "scale_x": scale_x,
+                "scale_y": scale_y,
             })
+
             mapped_words.append(item)
 
-        # -------------------------------------------------
-        # Stable physical reading order and line index.
-        # -------------------------------------------------
+        # Group words into physical lines.
         groups = {}
-        for item in mapped_words:
+
+        for word in mapped_words:
             key = (
-                item.get("block_num", 0),
-                item.get("par_num", 0),
-                item.get("line_num", 0),
+                word.get("block_num", 0),
+                word.get("par_num", 0),
+                word.get("line_num", 0),
             )
-            groups.setdefault(key, []).append(item)
+
+            groups.setdefault(key, []).append(word)
 
         ordered_groups = sorted(
             groups.values(),
-            key=lambda g: (
-                min(x.get("y", 0) for x in g),
-                min(x.get("x", 0) for x in g),
+            key=lambda group: (
+                min(
+                    item.get("y", 0)
+                    for item in group
+                ),
+                min(
+                    item.get("x", 0)
+                    for item in group
+                ),
             ),
         )
 
-        for line_index, line_words in enumerate(ordered_groups):
-            line_words.sort(key=lambda x: x.get("x", 0))
-            for word_index, item in enumerate(line_words):
+        for line_index, line_words in enumerate(
+            ordered_groups
+        ):
+            line_words.sort(
+                key=lambda item: item.get("x", 0)
+            )
+
+            for word_index, item in enumerate(
+                line_words
+            ):
                 item["line_index"] = line_index
                 item["word_index"] = word_index
 
         mapped_words.sort(
-            key=lambda x: (
-                x.get("line_index", 0),
-                x.get("x", 0),
+            key=lambda item: (
+                item.get("line_index", 0),
+                item.get("x", 0),
             )
         )
 
-        final_text = self.build_line_text(mapped_words)
+        final_text = self.build_line_text(
+            mapped_words
+        )
 
-        # EasyOCR is used as an additional confidence signal only.
-        easy_result = self.extract_easyocr(self.upscale(image))
+        # EasyOCR is optional.
+        easy_result = self.extract_easyocr(
+            self.upscale(image)
+        )
 
-        confidences = []
-        tc = float(best_tesseract.get("confidence", 0) or 0)
-        ec = float(easy_result.get("confidence", 0) or 0)
-        if tc > 0:
-            confidences.append(tc)
-        if ec > 0:
-            confidences.append(ec)
+        confidence_values = []
+
+        tess_confidence = float(
+            best_tesseract.get(
+                "confidence",
+                0.0,
+            )
+            or 0.0
+        )
+
+        easy_confidence = float(
+            easy_result.get(
+                "confidence",
+                0.0,
+            )
+            or 0.0
+        )
+
+        if tess_confidence > 0:
+            confidence_values.append(
+                tess_confidence
+            )
+
+        if easy_confidence > 0:
+            confidence_values.append(
+                easy_confidence
+            )
+
+        final_confidence = (
+            sum(confidence_values) / len(confidence_values)
+            if confidence_values
+            else 0.0
+        )
 
         return {
             "text": final_text.strip(),
             "confidence": round(
-                sum(confidences) / len(confidences)
-                if confidences else 0.0,
+                final_confidence,
                 1,
             ),
             "words": mapped_words,
             "lines": [
                 {
                     "line_index": i,
-                    "text": " ".join(w["text"] for w in group),
+                    "text": " ".join(
+                        word.get("text", "")
+                        for word in group
+                    ),
                     "words": group,
                 }
-                for i, group in enumerate(ordered_groups)
+                for i, group in enumerate(
+                    ordered_groups
+                )
             ],
             "coordinate_space": "original",
-            "image_width": original_w,
-            "image_height": original_h,
+            "image_width": original_width,
+            "image_height": original_height,
+            "tesseract": best_tesseract,
+            "easyocr": easy_result,
         }
