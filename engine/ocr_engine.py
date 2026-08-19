@@ -49,16 +49,9 @@ class OCREngine:
         self.gpu = bool(OCR_GPU)
 
         # Keep OCR calls from hanging a Render worker.
-        # Render-friendly settings:
-        # one OCR process at a time and a bounded timeout.
         self.tesseract_timeout = int(
-            os.getenv("TESSERACT_TIMEOUT", "8")
+            os.getenv("TESSERACT_TIMEOUT", "5")
         )
-
-        # Cache the executable/version check. Calling
-        # get_tesseract_version() for every image/variant is expensive
-        # on Render and was causing repeated timeout warnings.
-        self._tesseract_available = None
 
     # =====================================================
     # FIND TESSERACT
@@ -95,22 +88,16 @@ class OCREngine:
     # =====================================================
 
     def is_tesseract_available(self):
-        if self._tesseract_available is not None:
-            return self._tesseract_available
-
         if not self.tesseract_path:
-            self._tesseract_available = False
             return False
 
         try:
             version = pytesseract.get_tesseract_version()
             logger.info("Tesseract detected: %s", version)
-            self._tesseract_available = version is not None
+            return version is not None
         except Exception as exc:
             logger.warning("Tesseract is not available: %s", exc)
-            self._tesseract_available = False
-
-        return self._tesseract_available
+            return False
 
     # =====================================================
     # LOAD IMAGE
@@ -388,18 +375,6 @@ class OCREngine:
     # =====================================================
 
     def extract_tesseract_multi(self, image):
-        """
-        Render-safe Tesseract execution.
-
-        The previous implementation could run Tesseract multiple times for
-        every preprocessing variant. On a small Render instance this caused
-        repeated PSM-6 process timeouts.
-
-        Strategy:
-        1. Run the configured PSM once.
-        2. Only try PSM 6 if the configured PSM is different AND the first
-           attempt returned no usable text.
-        """
         if not self.is_tesseract_available():
             return {
                 "text": "",
@@ -409,46 +384,62 @@ class OCREngine:
                 "error": "Tesseract is not available",
             }
 
+        psms = []
+
         try:
             configured_psm = int(self.psm)
         except (ValueError, TypeError):
             configured_psm = 6
 
-        psms = [configured_psm]
+        psms.append(configured_psm)
 
-        # Fallback only when the first OCR attempt produces nothing.
-        # This prevents the repeated Render timeout pattern.
-        if configured_psm != 6:
+        # Only one fallback to reduce Render CPU usage.
+        if 6 not in psms:
             psms.append(6)
 
-        for index, psm in enumerate(psms):
+        results = []
+
+        for psm in psms:
             try:
-                result = self._extract_tesseract_data(image, psm=psm)
+                result = self._extract_tesseract_data(
+                    image,
+                    psm=psm,
+                )
             except Exception as exc:
-                logger.exception("Tesseract PSM %s failed: %s", psm, exc)
-                result = None
+                logger.exception(
+                    "Tesseract PSM %s failed: %s",
+                    psm,
+                    exc,
+                )
+                continue
 
             if not isinstance(result, dict):
                 continue
 
-            if result.get("available", False) and str(
-                result.get("text", "")
-            ).strip():
-                result["psm"] = psm
-                return result
-
-            # Do not run the fallback after a successful first result.
-            # It is only intended for an empty first result.
-            if index == 0:
+            if not result.get("available", False):
                 continue
 
-        return {
-            "text": "",
-            "words": [],
-            "confidence": 0.0,
-            "available": self.is_tesseract_available(),
-            "error": "Tesseract returned no usable text",
-        }
+            text = str(result.get("text", "")).strip()
+
+            if not text:
+                continue
+
+            result["psm"] = psm
+            results.append(result)
+
+        if not results:
+            return {
+                "text": "",
+                "words": [],
+                "confidence": 0.0,
+                "available": True,
+                "error": "Tesseract returned no usable text",
+            }
+
+        return max(
+            results,
+            key=self.score_ocr_result,
+        )
 
     # =====================================================
     # BUILD LINE TEXT
@@ -792,76 +783,54 @@ class OCREngine:
 
         original_height, original_width = image.shape[:2]
 
-        # Render-safe OCR:
-        # Start with the upscaled original image. This is normally enough for
-        # clean carton/garment labels and avoids running Tesseract against
-        # four variants for every uploaded image.
-        enlarged = self.upscale(image)
+        variants = self.preprocess_variants(image)
 
-        best_tesseract = None
+        tesseract_results = []
 
-        try:
-            result = self.extract_tesseract_multi(enlarged)
-        except Exception as exc:
-            logger.exception("Primary Tesseract OCR failed: %s", exc)
-            result = None
-
-        if isinstance(result, dict) and str(
-            result.get("text", "")
-        ).strip():
-            result["variant"] = "upscaled"
-            result["_ocr_width"] = enlarged.shape[1]
-            result["_ocr_height"] = enlarged.shape[0]
-            best_tesseract = result
-
-        # Only use a second preprocessing pass when the first one produced
-        # no text. This is the important Render optimization.
-        if best_tesseract is None:
+        for variant_name, processed in variants:
             try:
-                gray = cv2.cvtColor(
-                    enlarged,
-                    cv2.COLOR_BGR2GRAY,
+                result = self.extract_tesseract_multi(
+                    processed
                 )
-                clahe = cv2.createCLAHE(
-                    clipLimit=2.0,
-                    tileGridSize=(8, 8),
-                )
-                enhanced = clahe.apply(gray)
-
-                result = self.extract_tesseract_multi(enhanced)
-
-                if isinstance(result, dict) and str(
-                    result.get("text", "")
-                ).strip():
-                    result["variant"] = "clahe"
-                    result["_ocr_width"] = enhanced.shape[1]
-                    result["_ocr_height"] = enhanced.shape[0]
-                    best_tesseract = result
             except Exception as exc:
                 logger.exception(
-                    "Fallback Tesseract OCR failed: %s",
+                    "OCR variant %s failed: %s",
+                    variant_name,
                     exc,
                 )
+                continue
 
-        if best_tesseract is None:
+            if not isinstance(result, dict):
+                continue
+
+            text = str(
+                result.get("text", "")
+            ).strip()
+
+            if not result.get("available", False):
+                continue
+
+            if not text:
+                continue
+
+            result["variant"] = variant_name
+            result["_ocr_width"] = processed.shape[1]
+            result["_ocr_height"] = processed.shape[0]
+
+            tesseract_results.append(result)
+
+        if tesseract_results:
+            best_tesseract = max(
+                tesseract_results,
+                key=self.score_ocr_result,
+            )
+        else:
             best_tesseract = {
                 "text": "",
                 "words": [],
                 "confidence": 0.0,
                 "available": self.is_tesseract_available(),
-                "error": "No OCR text returned",
-                "_ocr_width": enlarged.shape[1],
-                "_ocr_height": enlarged.shape[0],
             }
-
-        logger.info(
-            "Tesseract OCR selected variant=%s words=%d confidence=%.1f",
-            best_tesseract.get("variant", "none"),
-            len(best_tesseract.get("words", []))
-            if isinstance(best_tesseract.get("words", []), list)
-            else 0,
-            float(best_tesseract.get("confidence", 0.0) or 0.0),
-        )
 
         ocr_width = int(
             best_tesseract.get(
@@ -1032,21 +1001,10 @@ class OCREngine:
             mapped_words
         )
 
-        # EasyOCR is optional. On Render it can be expensive, so it can be
-        # disabled without changing config.py by setting:
-        # RENDER_DISABLE_EASYOCR=1
-        if os.getenv("RENDER_DISABLE_EASYOCR", "0") == "1":
-            easy_result = {
-                "text": "",
-                "words": [],
-                "confidence": 0.0,
-                "available": False,
-                "error": "EasyOCR disabled on Render",
-            }
-        else:
-            easy_result = self.extract_easyocr(
-                enlarged
-            )
+        # EasyOCR is optional.
+        easy_result = self.extract_easyocr(
+            self.upscale(image)
+        )
 
         confidence_values = []
 
@@ -1080,13 +1038,6 @@ class OCREngine:
             sum(confidence_values) / len(confidence_values)
             if confidence_values
             else 0.0
-        )
-
-        logger.info(
-            "OCR completed: words=%d lines=%d confidence=%.1f",
-            len(mapped_words),
-            len(ordered_groups),
-            final_confidence,
         )
 
         return {
