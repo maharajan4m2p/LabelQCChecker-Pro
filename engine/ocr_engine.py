@@ -48,27 +48,17 @@ class OCREngine:
         self.use_easyocr = bool(OCR_USE_EASYOCR)
         self.gpu = bool(OCR_GPU)
 
-        # Render has very limited CPU/time compared with a local machine.
-        # On Render we use a much shorter Tesseract timeout and a smaller
-        # number of OCR attempts, then fall back to EasyOCR if available.
-        self.is_render = bool(
-            os.getenv("RENDER")
-            or os.getenv("RENDER_SERVICE_ID")
-            or os.getenv("RENDER_INSTANCE_ID")
+        # Keep OCR calls from hanging a Render worker.
+        # Render-friendly settings:
+        # one OCR process at a time and a bounded timeout.
+        self.tesseract_timeout = int(
+            os.getenv("TESSERACT_TIMEOUT", "8")
         )
 
-        default_timeout = "3" if self.is_render else "5"
-        try:
-            self.tesseract_timeout = max(
-                1,
-                int(os.getenv("TESSERACT_TIMEOUT", default_timeout))
-            )
-        except (TypeError, ValueError):
-            self.tesseract_timeout = 3 if self.is_render else 5
-
-        # A timeout means the Tesseract subprocess was killed.  Do not keep
-        # retrying the same expensive operation on Render.
-        self._tesseract_timeout_seen = False
+        # Cache the executable/version check. Calling
+        # get_tesseract_version() for every image/variant is expensive
+        # on Render and was causing repeated timeout warnings.
+        self._tesseract_available = None
 
     # =====================================================
     # FIND TESSERACT
@@ -105,16 +95,22 @@ class OCREngine:
     # =====================================================
 
     def is_tesseract_available(self):
+        if self._tesseract_available is not None:
+            return self._tesseract_available
+
         if not self.tesseract_path:
+            self._tesseract_available = False
             return False
 
         try:
             version = pytesseract.get_tesseract_version()
             logger.info("Tesseract detected: %s", version)
-            return version is not None
+            self._tesseract_available = version is not None
         except Exception as exc:
             logger.warning("Tesseract is not available: %s", exc)
-            return False
+            self._tesseract_available = False
+
+        return self._tesseract_available
 
     # =====================================================
     # LOAD IMAGE
@@ -392,6 +388,18 @@ class OCREngine:
     # =====================================================
 
     def extract_tesseract_multi(self, image):
+        """
+        Render-safe Tesseract execution.
+
+        The previous implementation could run Tesseract multiple times for
+        every preprocessing variant. On a small Render instance this caused
+        repeated PSM-6 process timeouts.
+
+        Strategy:
+        1. Run the configured PSM once.
+        2. Only try PSM 6 if the configured PSM is different AND the first
+           attempt returned no usable text.
+        """
         if not self.is_tesseract_available():
             return {
                 "text": "",
@@ -406,58 +414,41 @@ class OCREngine:
         except (ValueError, TypeError):
             configured_psm = 6
 
-        # Local: keep the existing multi-PSM behaviour.
-        # Render: one PSM attempt is enough. If it times out, the caller
-        # immediately falls back to EasyOCR instead of burning CPU on retries.
         psms = [configured_psm]
-        if not self.is_render and 6 not in psms:
+
+        # Fallback only when the first OCR attempt produces nothing.
+        # This prevents the repeated Render timeout pattern.
+        if configured_psm != 6:
             psms.append(6)
 
-        results = []
-
-        for psm in psms:
+        for index, psm in enumerate(psms):
             try:
                 result = self._extract_tesseract_data(image, psm=psm)
             except Exception as exc:
-                logger.exception(
-                    "Tesseract PSM %s failed: %s",
-                    psm,
-                    exc,
-                )
-                continue
+                logger.exception("Tesseract PSM %s failed: %s", psm, exc)
+                result = None
 
             if not isinstance(result, dict):
                 continue
 
-            if not result.get("available", False):
-                error = str(result.get("error", "")).lower()
-                if "timeout" in error or "timed out" in error:
-                    self._tesseract_timeout_seen = True
-                    # Do not retry another PSM after a timeout on Render.
-                    if self.is_render:
-                        break
+            if result.get("available", False) and str(
+                result.get("text", "")
+            ).strip():
+                result["psm"] = psm
+                return result
+
+            # Do not run the fallback after a successful first result.
+            # It is only intended for an empty first result.
+            if index == 0:
                 continue
 
-            if not result.get("text", "").strip():
-                continue
-
-            result["psm"] = psm
-            results.append(result)
-
-            # Render only needs the first successful OCR result.
-            if self.is_render:
-                break
-
-        if not results:
-            return {
-                "text": "",
-                "words": [],
-                "confidence": 0.0,
-                "available": True,
-                "error": "Tesseract returned no usable text",
-            }
-
-        return max(results, key=self.score_ocr_result)
+        return {
+            "text": "",
+            "words": [],
+            "confidence": 0.0,
+            "available": self.is_tesseract_available(),
+            "error": "Tesseract returned no usable text",
+        }
 
     # =====================================================
     # BUILD LINE TEXT
@@ -789,36 +780,190 @@ class OCREngine:
     # MAIN EXTRACTION
     # =====================================================
 
-    def _map_easy_words(self, easy_words, original_width, original_height, ocr_width, ocr_height):
-        """Map EasyOCR boxes from the OCR image back to the original image."""
-        if not isinstance(easy_words, list):
-            return []
+    def extract(self, path):
+        """
+        Complete OCR pipeline.
 
-        scale_x = original_width / max(1, ocr_width)
-        scale_y = original_height / max(1, ocr_height)
+        Returned word coordinates are mapped back to the
+        original image dimensions.
+        """
 
-        mapped = []
-        for word in easy_words:
+        image = self.load_image(path)
+
+        original_height, original_width = image.shape[:2]
+
+        # Render-safe OCR:
+        # Start with the upscaled original image. This is normally enough for
+        # clean carton/garment labels and avoids running Tesseract against
+        # four variants for every uploaded image.
+        enlarged = self.upscale(image)
+
+        best_tesseract = None
+
+        try:
+            result = self.extract_tesseract_multi(enlarged)
+        except Exception as exc:
+            logger.exception("Primary Tesseract OCR failed: %s", exc)
+            result = None
+
+        if isinstance(result, dict) and str(
+            result.get("text", "")
+        ).strip():
+            result["variant"] = "upscaled"
+            result["_ocr_width"] = enlarged.shape[1]
+            result["_ocr_height"] = enlarged.shape[0]
+            best_tesseract = result
+
+        # Only use a second preprocessing pass when the first one produced
+        # no text. This is the important Render optimization.
+        if best_tesseract is None:
+            try:
+                gray = cv2.cvtColor(
+                    enlarged,
+                    cv2.COLOR_BGR2GRAY,
+                )
+                clahe = cv2.createCLAHE(
+                    clipLimit=2.0,
+                    tileGridSize=(8, 8),
+                )
+                enhanced = clahe.apply(gray)
+
+                result = self.extract_tesseract_multi(enhanced)
+
+                if isinstance(result, dict) and str(
+                    result.get("text", "")
+                ).strip():
+                    result["variant"] = "clahe"
+                    result["_ocr_width"] = enhanced.shape[1]
+                    result["_ocr_height"] = enhanced.shape[0]
+                    best_tesseract = result
+            except Exception as exc:
+                logger.exception(
+                    "Fallback Tesseract OCR failed: %s",
+                    exc,
+                )
+
+        if best_tesseract is None:
+            best_tesseract = {
+                "text": "",
+                "words": [],
+                "confidence": 0.0,
+                "available": self.is_tesseract_available(),
+                "error": "No OCR text returned",
+                "_ocr_width": enlarged.shape[1],
+                "_ocr_height": enlarged.shape[0],
+            }
+
+        logger.info(
+            "Tesseract OCR selected variant=%s words=%d confidence=%.1f",
+            best_tesseract.get("variant", "none"),
+            len(best_tesseract.get("words", []))
+            if isinstance(best_tesseract.get("words", []), list)
+            else 0,
+            float(best_tesseract.get("confidence", 0.0) or 0.0),
+        )
+
+        ocr_width = int(
+            best_tesseract.get(
+                "_ocr_width",
+                original_width,
+            )
+            or original_width
+        )
+
+        ocr_height = int(
+            best_tesseract.get(
+                "_ocr_height",
+                original_height,
+            )
+            or original_height
+        )
+
+        scale_x = (
+            original_width / max(1, ocr_width)
+        )
+
+        scale_y = (
+            original_height / max(1, ocr_height)
+        )
+
+        mapped_words = []
+
+        source_words = best_tesseract.get(
+            "words",
+            [],
+        )
+
+        if not isinstance(source_words, list):
+            source_words = []
+
+        for word in source_words:
             if not isinstance(word, dict):
                 continue
 
             try:
-                x = int(round(float(word.get("x", 0)) * scale_x))
-                y = int(round(float(word.get("y", 0)) * scale_y))
-                w = int(round(float(word.get("w", 0)) * scale_x))
-                h = int(round(float(word.get("h", 0)) * scale_y))
+                x = int(
+                    round(
+                        float(word.get("x", 0))
+                        * scale_x
+                    )
+                )
+
+                y = int(
+                    round(
+                        float(word.get("y", 0))
+                        * scale_y
+                    )
+                )
+
+                width = int(
+                    round(
+                        float(word.get("w", 0))
+                        * scale_x
+                    )
+                )
+
+                height = int(
+                    round(
+                        float(word.get("h", 0))
+                        * scale_y
+                    )
+                )
+
             except (TypeError, ValueError):
                 continue
 
-            if w <= 0 or h <= 0:
+            if width <= 0 or height <= 0:
                 continue
 
-            x = max(0, min(x, original_width - 1))
-            y = max(0, min(y, original_height - 1))
-            x2 = min(original_width, x + w)
-            y2 = min(original_height, y + h)
+            x = max(
+                0,
+                min(
+                    x,
+                    original_width - 1,
+                ),
+            )
+
+            y = max(
+                0,
+                min(
+                    y,
+                    original_height - 1,
+                ),
+            )
+
+            x2 = min(
+                original_width,
+                x + width,
+            )
+
+            y2 = min(
+                original_height,
+                y + height,
+            )
 
             item = dict(word)
+
             item.update({
                 "x": x,
                 "y": y,
@@ -834,352 +979,139 @@ class OCREngine:
                 "scale_x": scale_x,
                 "scale_y": scale_y,
             })
-            mapped.append(item)
 
-        # EasyOCR does not provide Tesseract's block/paragraph/line numbers.
-        # Create physical lines from the Y coordinate so the rest of the
-        # comparison engine receives the same line_index/word_index fields.
-        mapped.sort(key=lambda item: (item.get("y", 0), item.get("x", 0)))
+            mapped_words.append(item)
 
-        line_groups = []
-        for item in mapped:
-            cy = item.get("y", 0) + item.get("h", 0) / 2
-            placed = False
+        # Group words into physical lines.
+        groups = {}
 
-            for group in line_groups:
-                avg_cy = group["sum_y"] / len(group["items"])
-                avg_h = group["sum_h"] / len(group["items"])
-                tolerance = max(8.0, avg_h * 0.65)
+        for word in mapped_words:
+            key = (
+                word.get("block_num", 0),
+                word.get("par_num", 0),
+                word.get("line_num", 0),
+            )
 
-                if abs(cy - avg_cy) <= tolerance:
-                    group["items"].append(item)
-                    group["sum_y"] += cy
-                    group["sum_h"] += item.get("h", 0)
-                    placed = True
-                    break
+            groups.setdefault(key, []).append(word)
 
-            if not placed:
-                line_groups.append({
-                    "items": [item],
-                    "sum_y": cy,
-                    "sum_h": item.get("h", 0),
-                })
+        ordered_groups = sorted(
+            groups.values(),
+            key=lambda group: (
+                min(
+                    item.get("y", 0)
+                    for item in group
+                ),
+                min(
+                    item.get("x", 0)
+                    for item in group
+                ),
+            ),
+        )
 
-        line_groups.sort(
-            key=lambda group: min(
-                item.get("y", 0) for item in group["items"]
+        for line_index, line_words in enumerate(
+            ordered_groups
+        ):
+            line_words.sort(
+                key=lambda item: item.get("x", 0)
+            )
+
+            for word_index, item in enumerate(
+                line_words
+            ):
+                item["line_index"] = line_index
+                item["word_index"] = word_index
+
+        mapped_words.sort(
+            key=lambda item: (
+                item.get("line_index", 0),
+                item.get("x", 0),
             )
         )
 
-        final_words = []
-        for line_index, group in enumerate(line_groups):
-            group["items"].sort(key=lambda item: item.get("x", 0))
-            for word_index, item in enumerate(group["items"]):
-                item["line_index"] = line_index
-                item["word_index"] = word_index
-                final_words.append(item)
+        final_text = self.build_line_text(
+            mapped_words
+        )
 
-        return final_words
-
-    def extract(self, path):
-        """
-        Complete OCR pipeline.
-
-        Tesseract remains the primary engine. If Tesseract times out or
-        returns no usable words (the Render failure seen in production),
-        EasyOCR is used as a fallback. Returned coordinates are always mapped
-        back to the original image dimensions.
-        """
-        image = self.load_image(path)
-
-        original_height, original_width = image.shape[:2]
-
-        variants = self.preprocess_variants(image)
-        tesseract_results = []
-
-        # Local keeps the high-accuracy multi-variant pipeline.
-        # Render intentionally uses only the original/upscaled image first.
-        # This prevents 4 variants x multiple PSM calls from exhausting the
-        # Render worker when Tesseract is slow.
-        if self.is_render:
-            variants_to_try = [
-                (name, processed)
-                for name, processed in variants
-                if name == "original"
-            ]
-        else:
-            variants_to_try = variants
-
-        for variant_name, processed in variants_to_try:
-            try:
-                result = self.extract_tesseract_multi(processed)
-            except Exception as exc:
-                logger.exception(
-                    "OCR variant %s failed: %s",
-                    variant_name,
-                    exc,
-                )
-                continue
-
-            if not isinstance(result, dict):
-                continue
-
-            text = str(result.get("text", "")).strip()
-
-            if not result.get("available", False):
-                continue
-
-            if not text or not result.get("words"):
-                # A successful process with zero words is not useful for QC.
-                continue
-
-            result["variant"] = variant_name
-            result["_ocr_width"] = processed.shape[1]
-            result["_ocr_height"] = processed.shape[0]
-            tesseract_results.append(result)
-
-            # Render: stop after the first usable result.
-            if self.is_render:
-                break
-
-        if tesseract_results:
-            best_tesseract = max(
-                tesseract_results,
-                key=self.score_ocr_result,
-            )
-        else:
-            best_tesseract = {
+        # EasyOCR is optional. On Render it can be expensive, so it can be
+        # disabled without changing config.py by setting:
+        # RENDER_DISABLE_EASYOCR=1
+        if os.getenv("RENDER_DISABLE_EASYOCR", "0") == "1":
+            easy_result = {
                 "text": "",
                 "words": [],
                 "confidence": 0.0,
-                "available": self.is_tesseract_available(),
+                "available": False,
+                "error": "EasyOCR disabled on Render",
             }
-
-        tesseract_words = best_tesseract.get("words", [])
-        if not isinstance(tesseract_words, list):
-            tesseract_words = []
-
-        # -----------------------------------------------------
-        # EASY OCR FALLBACK
-        # -----------------------------------------------------
-        # Respect OCR_USE_EASYOCR locally. On Render, however, automatically
-        # enable EasyOCR as the fallback when Tesseract produced no words.
-        # This is the key fix for the production "words=0 / lines=0" result.
-        need_easy_fallback = len(tesseract_words) == 0
-
-        easy_result = {
-            "text": "",
-            "words": [],
-            "confidence": 0.0,
-            "available": False,
-        }
-
-        if self.use_easyocr or (self.is_render and need_easy_fallback):
-            try:
-                easy_image = self.upscale(image)
-                easy_result = self.extract_easyocr(easy_image)
-                easy_result["_ocr_width"] = easy_image.shape[1]
-                easy_result["_ocr_height"] = easy_image.shape[0]
-            except Exception as exc:
-                logger.exception("EasyOCR fallback failed: %s", exc)
-                easy_result = {
-                    "text": "",
-                    "words": [],
-                    "confidence": 0.0,
-                    "available": False,
-                    "error": str(exc),
-                }
-
-        # -----------------------------------------------------
-        # SELECT PRIMARY OCR RESULT
-        # -----------------------------------------------------
-        if tesseract_words:
-            primary_words = tesseract_words
-            ocr_width = int(
-                best_tesseract.get("_ocr_width", original_width)
-                or original_width
-            )
-            ocr_height = int(
-                best_tesseract.get("_ocr_height", original_height)
-                or original_height
-            )
-            primary_confidence = float(
-                best_tesseract.get("confidence", 0.0) or 0.0
-            )
-            primary_engine = "tesseract"
         else:
-            easy_words = easy_result.get("words", [])
-            if not isinstance(easy_words, list):
-                easy_words = []
-
-            primary_words = easy_words
-            ocr_width = int(
-                easy_result.get("_ocr_width", original_width)
-                or original_width
-            )
-            ocr_height = int(
-                easy_result.get("_ocr_height", original_height)
-                or original_height
-            )
-            primary_confidence = float(
-                easy_result.get("confidence", 0.0) or 0.0
-            )
-            primary_engine = "easyocr"
-
-        # -----------------------------------------------------
-        # MAP WORDS TO ORIGINAL IMAGE
-        # -----------------------------------------------------
-        if primary_engine == "easyocr":
-            mapped_words = self._map_easy_words(
-                primary_words,
-                original_width,
-                original_height,
-                ocr_width,
-                ocr_height,
-            )
-        else:
-            scale_x = original_width / max(1, ocr_width)
-            scale_y = original_height / max(1, ocr_height)
-
-            mapped_words = []
-
-            for word in primary_words:
-                if not isinstance(word, dict):
-                    continue
-
-                try:
-                    x = int(round(float(word.get("x", 0)) * scale_x))
-                    y = int(round(float(word.get("y", 0)) * scale_y))
-                    width = int(round(float(word.get("w", 0)) * scale_x))
-                    height = int(round(float(word.get("h", 0)) * scale_y))
-                except (TypeError, ValueError):
-                    continue
-
-                if width <= 0 or height <= 0:
-                    continue
-
-                x = max(0, min(x, original_width - 1))
-                y = max(0, min(y, original_height - 1))
-                x2 = min(original_width, x + width)
-                y2 = min(original_height, y + height)
-
-                item = dict(word)
-                item.update({
-                    "x": x,
-                    "y": y,
-                    "w": max(1, x2 - x),
-                    "h": max(1, y2 - y),
-                    "x2": x2,
-                    "y2": y2,
-                    "original_x": x,
-                    "original_y": y,
-                    "original_w": max(1, x2 - x),
-                    "original_h": max(1, y2 - y),
-                    "coordinate_space": "original",
-                    "scale_x": scale_x,
-                    "scale_y": scale_y,
-                })
-                mapped_words.append(item)
-
-            # Group Tesseract words into physical lines.
-            groups = {}
-            for word in mapped_words:
-                key = (
-                    word.get("block_num", 0),
-                    word.get("par_num", 0),
-                    word.get("line_num", 0),
-                )
-                groups.setdefault(key, []).append(word)
-
-            ordered_groups = sorted(
-                groups.values(),
-                key=lambda group: (
-                    min(item.get("y", 0) for item in group),
-                    min(item.get("x", 0) for item in group),
-                ),
+            easy_result = self.extract_easyocr(
+                enlarged
             )
 
-            for line_index, line_words in enumerate(ordered_groups):
-                line_words.sort(key=lambda item: item.get("x", 0))
-                for word_index, item in enumerate(line_words):
-                    item["line_index"] = line_index
-                    item["word_index"] = word_index
-
-            mapped_words.sort(
-                key=lambda item: (
-                    item.get("line_index", 0),
-                    item.get("x", 0),
-                )
-            )
-
-        # -----------------------------------------------------
-        # FINAL TEXT / LINES
-        # -----------------------------------------------------
-        final_text = self.build_line_text(mapped_words)
-
-        # If EasyOCR is primary, build_line_text works from the generated
-        # line_index values above. For Tesseract it preserves the original
-        # physical line grouping.
-        lines = []
-        line_groups_final = {}
-
-        for word in mapped_words:
-            line_index = int(word.get("line_index", 0))
-            line_groups_final.setdefault(line_index, []).append(word)
-
-        for line_index in sorted(line_groups_final):
-            group = sorted(
-                line_groups_final[line_index],
-                key=lambda item: item.get("x", 0),
-            )
-            line_text = " ".join(
-                str(word.get("text", "")).strip()
-                for word in group
-                if str(word.get("text", "")).strip()
-            ).strip()
-
-            if line_text:
-                lines.append({
-                    "line_index": line_index,
-                    "text": line_text,
-                    "words": group,
-                })
+        confidence_values = []
 
         tess_confidence = float(
-            best_tesseract.get("confidence", 0.0) or 0.0
-        )
-        easy_confidence = float(
-            easy_result.get("confidence", 0.0) or 0.0
+            best_tesseract.get(
+                "confidence",
+                0.0,
+            )
+            or 0.0
         )
 
-        confidence_values = [
-            value for value in (tess_confidence, easy_confidence)
-            if value > 0
-        ]
+        easy_confidence = float(
+            easy_result.get(
+                "confidence",
+                0.0,
+            )
+            or 0.0
+        )
+
+        if tess_confidence > 0:
+            confidence_values.append(
+                tess_confidence
+            )
+
+        if easy_confidence > 0:
+            confidence_values.append(
+                easy_confidence
+            )
 
         final_confidence = (
             sum(confidence_values) / len(confidence_values)
             if confidence_values
-            else primary_confidence
+            else 0.0
         )
 
         logger.info(
-            "OCR completed: engine=%s words=%d lines=%d confidence=%.1f",
-            primary_engine,
+            "OCR completed: words=%d lines=%d confidence=%.1f",
             len(mapped_words),
-            len(lines),
+            len(ordered_groups),
             final_confidence,
         )
 
         return {
             "text": final_text.strip(),
-            "confidence": round(final_confidence, 1),
+            "confidence": round(
+                final_confidence,
+                1,
+            ),
             "words": mapped_words,
-            "lines": lines,
+            "lines": [
+                {
+                    "line_index": i,
+                    "text": " ".join(
+                        word.get("text", "")
+                        for word in group
+                    ),
+                    "words": group,
+                }
+                for i, group in enumerate(
+                    ordered_groups
+                )
+            ],
             "coordinate_space": "original",
             "image_width": original_width,
             "image_height": original_height,
-            "engine": primary_engine,
             "tesseract": best_tesseract,
             "easyocr": easy_result,
         }
